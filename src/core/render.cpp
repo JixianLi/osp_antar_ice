@@ -59,16 +59,15 @@ FrameRenderer::FrameRenderer(
     , camera_("perspective")
     , pixels_(static_cast<std::size_t>(width) * height)
 {
-    const Vec3& background = script.session.renderer.background;
     // One sample per renderFrame call; the accumulation buffer does the
     // averaging, which lets the preview reuse this class progressively.
     renderer_.setParam("pixelSamples", 1);
-    renderer_.setParam("backgroundColor", Vec4{background.x, background.y, background.z, 1.0f});
     if (script.session.renderer.type == "scivis")
         renderer_.setParam("aoSamples", 2);
     else
         renderer_.setParam("maxPathLength", 8);
-    renderer_.commit();
+    set_background(
+        script.session.renderer.background_top, script.session.renderer.background_bottom);
 
     camera_.setParam("aspect", static_cast<float>(width) / static_cast<float>(height));
     camera_.commit();
@@ -99,6 +98,33 @@ bool same(Vec3 a, Vec3 b)
 
 } // namespace
 
+void FrameRenderer::set_background(Vec3 top, Vec3 bottom)
+{
+    // A tall, 1-wide backplate: OSPRay samples it in normalised screen coords,
+    // so a single column is a pure vertical gradient. Row 0 is the bottom of the
+    // frame. HSV keeps a coloured gradient from desaturating at the midpoint.
+    constexpr int STEPS = 256;
+    std::vector<Vec3> column(STEPS);
+    for (int index = 0; index < STEPS; ++index) {
+        const float t = static_cast<float>(index) / (STEPS - 1);
+        column[index] = lerp_hsv(bottom, top, t);
+    }
+
+    ospray::cpp::Texture backplate("texture2d");
+    backplate.setParam("format", OSP_TEXTURE_RGB32F);
+    backplate.setParam("filter", OSP_TEXTURE_FILTER_LINEAR);
+    backplate.setParam("data",
+        ospray::cpp::CopiedData(column.data(), Vec2ul{1, static_cast<unsigned long long>(STEPS)}));
+    backplate.commit();
+
+    renderer_.setParam("map_backplate", backplate);
+    // Fallback for anything the backplate does not cover (e.g. regions outside
+    // the texture under some wrap modes).
+    renderer_.setParam("backgroundColor", Vec4{bottom.x, bottom.y, bottom.z, 1.0f});
+    renderer_.commit();
+    reset();
+}
+
 void FrameRenderer::set_camera(const Camera& camera)
 {
     if (camera_valid_ && same(camera.position, current_camera_.position)
@@ -125,7 +151,9 @@ void FrameRenderer::set_opacity(const OpacityCurve& opacity)
 
 void FrameRenderer::reset()
 {
-    framebuffer_.resetAccumulation();
+    // set_background runs from the constructor before the framebuffer exists.
+    if (framebuffer_.handle() != nullptr)
+        framebuffer_.resetAccumulation();
     accumulated_ = 0;
 }
 

@@ -202,9 +202,21 @@ Script load_script(const std::string& path)
             script.session.renderer.samples_per_pixel = renderer.at("spp").get<int>();
         if (renderer.contains("denoise"))
             script.session.renderer.denoise = renderer.at("denoise").get<bool>();
-        if (renderer.contains("background"))
-            script.session.renderer.background
-                = read_vec3(renderer.at("background"), "session.renderer.background");
+        if (renderer.contains("background")) {
+            const json& background = renderer.at("background");
+            if (background.is_array()) {
+                const Vec3 flat = read_vec3(background, "session.renderer.background");
+                script.session.renderer.background_top = flat;
+                script.session.renderer.background_bottom = flat;
+            } else {
+                if (background.contains("top"))
+                    script.session.renderer.background_top
+                        = read_vec3(background.at("top"), "session.renderer.background.top");
+                if (background.contains("bottom"))
+                    script.session.renderer.background_bottom = read_vec3(
+                        background.at("bottom"), "session.renderer.background.bottom");
+            }
+        }
     }
 
     if (session.contains("objects")) {

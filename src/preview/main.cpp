@@ -69,20 +69,22 @@ GLuint make_texture()
     return texture;
 }
 
-// The framebuffer's first row is the bottom of the image, so the quad is drawn
-// with its v coordinate flipped rather than copying the rows around.
-void draw_render(GLuint texture, int window_width, int window_height)
+// Placed in ImGui's logical coordinate space (points), NOT framebuffer pixels:
+// on a Retina display the framebuffer is 2x the window, and mixing the two puts
+// the image at 2x offset so only a quarter shows. The framebuffer's first row is
+// the bottom of the image, so the quad is drawn with its v coordinate flipped.
+void draw_render(GLuint texture, float view_width, float view_height)
 {
     const float target = static_cast<float>(PREVIEW_WIDTH) / PREVIEW_HEIGHT;
-    const float actual = static_cast<float>(window_width) / window_height;
-    float width = static_cast<float>(window_width);
-    float height = static_cast<float>(window_height);
+    const float actual = view_width / view_height;
+    float width = view_width;
+    float height = view_height;
     if (actual > target)
         width = height * target;
     else
         height = width / target;
 
-    const ImVec2 origin((window_width - width) * 0.5f, (window_height - height) * 0.5f);
+    const ImVec2 origin((view_width - width) * 0.5f, (view_height - height) * 0.5f);
     ImGui::GetBackgroundDrawList()->AddImage(
         static_cast<ImTextureID>(static_cast<intptr_t>(texture)),
         origin,
@@ -142,6 +144,8 @@ int main(int argc, char** argv)
         orbit.radius = script.orbit.radius;
 
         std::vector<ospr::LightSpec> lights = script.session.lights;
+        ospr::Vec3 background_top = script.session.renderer.background_top;
+        ospr::Vec3 background_bottom = script.session.renderer.background_bottom;
         const GLuint texture = make_texture();
 
         float time_seconds = 0.0f;
@@ -205,6 +209,27 @@ int main(int argc, char** argv)
                 ImGui::SliderFloat("fov", &orbit.fov_y_degrees, 10.0f, 90.0f);
                 ImGui::SliderFloat("radius", &orbit.radius, bounds.diagonal() * 0.15f,
                     bounds.diagonal() * 3.0f);
+            }
+
+            if (ImGui::CollapsingHeader("background", ImGuiTreeNodeFlags_DefaultOpen)) {
+                const auto to255 = [](const ospr::Vec3& c, int out[3]) {
+                    out[0] = static_cast<int>(std::lround(c.x * 255.0f));
+                    out[1] = static_cast<int>(std::lround(c.y * 255.0f));
+                    out[2] = static_cast<int>(std::lround(c.z * 255.0f));
+                };
+                int top[3];
+                int bottom[3];
+                to255(background_top, top);
+                to255(background_bottom, bottom);
+                bool changed = false;
+                changed |= ImGui::SliderInt3("top", top, 0, 255);
+                changed |= ImGui::SliderInt3("bottom", bottom, 0, 255);
+                if (changed) {
+                    background_top = {top[0] / 255.0f, top[1] / 255.0f, top[2] / 255.0f};
+                    background_bottom
+                        = {bottom[0] / 255.0f, bottom[1] / 255.0f, bottom[2] / 255.0f};
+                    renderer.set_background(background_top, background_bottom);
+                }
             }
 
             if (ImGui::CollapsingHeader("lights", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -283,11 +308,11 @@ int main(int argc, char** argv)
                 GL_UNSIGNED_BYTE,
                 pixels.data());
 
+            draw_render(texture, io.DisplaySize.x, io.DisplaySize.y);
+
             int window_width = 0;
             int window_height = 0;
             glfwGetFramebufferSize(window, &window_width, &window_height);
-            draw_render(texture, window_width, window_height);
-
             ImGui::Render();
             glViewport(0, 0, window_width, window_height);
             glClearColor(0.08f, 0.08f, 0.09f, 1.0f);

@@ -5,11 +5,18 @@
       "type": "pathtracer",
       "spp": 32,
       "denoise": true,
-      "background": [
-        0.02,
-        0.025,
-        0.035
-      ]
+      "background": {
+        "top": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "bottom": [
+          0.47,
+          0.47,
+          0.47
+        ]
+      }
     },
     "objects": [
       {

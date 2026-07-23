@@ -76,7 +76,10 @@ struct RendererSpec
     std::string type{"pathtracer"};
     int samples_per_pixel{32};
     bool denoise{true};
-    Vec3 background{0.02f, 0.02f, 0.03f};
+    // Vertical backplate gradient, interpolated in HSV. top is the top of the
+    // frame, bottom the bottom; equal values give a flat background.
+    Vec3 background_top{0.0f, 0.0f, 0.0f};
+    Vec3 background_bottom{0.47f, 0.47f, 0.47f};
 };
 
 // A circular camera path, because three revolutions as explicit keyframes is

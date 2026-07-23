@@ -41,6 +41,7 @@ public:
     // Progressive path for the preview. set_* discard the accumulation buffer
     // only when the value actually changed, so an idle UI keeps converging.
     void set_camera(const Camera& camera);
+    void set_background(Vec3 top, Vec3 bottom);
     void set_opacity(const OpacityCurve& opacity);
     void reset();
     bool accumulate(int samples = 1);
