@@ -142,23 +142,35 @@ int main(int argc, char** argv)
         ospr::FrameRenderer renderer(
             script, preview_width, preview_height, script.session.renderer.samples_per_pixel);
         const ospr::Bounds& bounds = renderer.bounds();
-        ospr::frame_scene(script.orbit, bounds, VIEW_ASPECT);
+        ospr::OrbitSpec fit;
+        fit.fov_y_degrees = script.keyframes.empty() ? 40.0f : script.keyframes[0].fov_y_degrees;
+        fit.up = script.up;
+        ospr::frame_scene(fit, bounds, VIEW_ASPECT);
         std::cout << "ready\n" << std::flush;
 
+        // The free camera opens on the first keyframe pose so the preview starts
+        // where the shot does.
         OrbitState orbit;
-        orbit.azimuth_degrees = script.orbit.azimuth_start_degrees;
-        orbit.elevation_degrees = script.orbit.elevation_degrees;
-        orbit.fov_y_degrees = script.orbit.fov_y_degrees;
-        orbit.up = script.orbit.up;
-        orbit.center = script.orbit.center;
-        orbit.radius = script.orbit.radius;
+        orbit.up = script.up;
+        orbit.center = fit.center;
+        if (!script.keyframes.empty()) {
+            orbit.azimuth_degrees = script.keyframes[0].azimuth_degrees;
+            orbit.elevation_degrees = script.keyframes[0].elevation_degrees;
+            orbit.fov_y_degrees = script.keyframes[0].fov_y_degrees;
+            orbit.radius = script.keyframes[0].radius;
+        } else {
+            orbit.elevation_degrees = fit.elevation_degrees;
+            orbit.fov_y_degrees = fit.fov_y_degrees;
+            orbit.radius = fit.radius;
+        }
 
         std::vector<ospr::LightSpec> lights = script.session.lights;
         ospr::Vec3 background_top = script.session.renderer.background_top;
         ospr::Vec3 background_bottom = script.session.renderer.background_bottom;
         const GLuint texture = make_texture();
 
-        float time_seconds = 0.0f;
+        const int last_frame = std::max(0, ospr::frame_count(script) - 1);
+        int frame_index = 0;
         bool follow_script_camera = false;
         bool dirty = true;
 
@@ -201,9 +213,10 @@ int main(int argc, char** argv)
             ImGui::Separator();
 
             if (ImGui::CollapsingHeader("timeline", ImGuiTreeNodeFlags_DefaultOpen)) {
-                if (ImGui::SliderFloat(
-                        "t (s)", &time_seconds, 0.0f, script.timeline.duration_seconds))
+                if (ImGui::SliderInt("frame", &frame_index, 0, last_frame))
                     dirty = true;
+                ImGui::SameLine();
+                ImGui::Text("u=%.2f", ospr::frame_to_param(script, frame_index));
                 ImGui::Checkbox("camera follows script", &follow_script_camera);
             }
 
@@ -301,12 +314,12 @@ int main(int argc, char** argv)
 
             ImGui::End();
 
-            const ospr::Camera camera = follow_script_camera
-                ? ospr::camera_for(script, time_seconds)
-                : orbit.camera();
+            const float u = ospr::frame_to_param(script, frame_index);
+            const ospr::Camera camera
+                = follow_script_camera ? ospr::camera_for(script, u) : orbit.camera();
             renderer.set_camera(camera);
             if (dirty) {
-                renderer.set_opacity(ospr::opacity_at(script.keyframes, time_seconds));
+                renderer.set_opacity(ospr::opacity_at(script.keyframes, u));
                 dirty = false;
             }
 

@@ -44,19 +44,6 @@ Ease read_ease(const std::string& name, const std::string& where)
     throw std::runtime_error(where + ": unknown ease '" + name + "'");
 }
 
-Camera read_camera(const json& node, const std::string& where)
-{
-    Camera camera;
-    if (node.contains("position"))
-        camera.position = read_vec3(node.at("position"), where + ".position");
-    if (node.contains("target"))
-        camera.target = read_vec3(node.at("target"), where + ".target");
-    if (node.contains("up"))
-        camera.up = read_vec3(node.at("up"), where + ".up");
-    if (node.contains("fovy"))
-        camera.fov_y_degrees = node.at("fovy").get<float>();
-    return camera;
-}
 
 OpacityCurve read_opacity(const json& node, const std::string& where)
 {
@@ -261,35 +248,10 @@ Script load_script(const std::string& path)
 
     if (root.contains("timeline")) {
         const json& timeline = root.at("timeline");
-        if (timeline.contains("fps"))
-            script.timeline.frames_per_second = timeline.at("fps").get<float>();
-        if (timeline.contains("duration"))
-            script.timeline.duration_seconds = timeline.at("duration").get<float>();
-    }
-
-    if (root.contains("camera")) {
-        const json& camera = root.at("camera");
-        if (camera.contains("mode") && camera.at("mode").get<std::string>() == "orbit") {
-            script.orbit.enabled = true;
-            if (camera.contains("center")) {
-                script.orbit.center = read_vec3(camera.at("center"), "camera.center");
-                script.orbit.has_center = true;
-            }
-            if (camera.contains("radius")) {
-                script.orbit.radius = camera.at("radius").get<float>();
-                script.orbit.has_radius = true;
-            }
-            if (camera.contains("elevation"))
-                script.orbit.elevation_degrees = camera.at("elevation").get<float>();
-            if (camera.contains("azimuth_start"))
-                script.orbit.azimuth_start_degrees = camera.at("azimuth_start").get<float>();
-            if (camera.contains("revolutions"))
-                script.orbit.revolutions = camera.at("revolutions").get<float>();
-            if (camera.contains("fovy"))
-                script.orbit.fov_y_degrees = camera.at("fovy").get<float>();
-            if (camera.contains("up"))
-                script.orbit.up = read_vec3(camera.at("up"), "camera.up");
-        }
+        if (timeline.contains("frames_between"))
+            script.frames_between = timeline.at("frames_between").get<int>();
+        if (timeline.contains("up"))
+            script.up = read_vec3(timeline.at("up"), "timeline.up");
     }
 
     if (!root.contains("keyframes") || !root.at("keyframes").is_array())
@@ -301,63 +263,72 @@ Script load_script(const std::string& path)
         const json& node = keyframes[index];
 
         Keyframe keyframe;
-        if (!node.contains("t"))
-            throw std::runtime_error(where + ": missing 't'");
-        keyframe.time_seconds = node.at("t").get<float>();
-        if (node.contains("camera"))
-            keyframe.camera = read_camera(node.at("camera"), where + ".camera");
+        if (node.contains("azimuth"))
+            keyframe.azimuth_degrees = node.at("azimuth").get<float>();
+        if (node.contains("elevation"))
+            keyframe.elevation_degrees = node.at("elevation").get<float>();
+        if (node.contains("radius"))
+            keyframe.radius = node.at("radius").get<float>();
+        if (node.contains("fov"))
+            keyframe.fov_y_degrees = node.at("fov").get<float>();
         if (node.contains("opacity"))
             keyframe.opacity = read_opacity(node.at("opacity"), where + ".opacity");
         if (node.contains("ease"))
             keyframe.ease = read_ease(node.at("ease").get<std::string>(), where);
+        if (node.contains("frames_after"))
+            keyframe.frames_after = node.at("frames_after").get<int>();
         script.keyframes.push_back(keyframe);
     }
 
     if (script.keyframes.empty())
         throw std::runtime_error(path + ": 'keyframes' is empty");
-
-    std::stable_sort(script.keyframes.begin(),
-        script.keyframes.end(),
-        [](const Keyframe& a, const Keyframe& b) { return a.time_seconds < b.time_seconds; });
-
+    if (script.frames_between < 0)
+        throw std::runtime_error(path + ": timeline.frames_between must be >= 0");
     if (script.output.width <= 0 || script.output.height <= 0)
         throw std::runtime_error(path + ": output width and height must be positive");
-    if (script.timeline.frames_per_second <= 0.0f)
-        throw std::runtime_error(path + ": timeline.fps must be positive");
 
     return script;
 }
 
+namespace {
+
+int frames_in_gap(const Script& script, std::size_t gap)
+{
+    const int override_frames = script.keyframes[gap].frames_after;
+    return override_frames >= 0 ? override_frames : script.frames_between;
+}
+
+} // namespace
+
 int frame_count(const Script& script)
 {
-    const float exact = script.timeline.duration_seconds * script.timeline.frames_per_second;
-    return std::max(1, static_cast<int>(std::lround(exact)));
+    if (script.keyframes.size() <= 1)
+        return static_cast<int>(script.keyframes.size());
+    int total = 1;
+    for (std::size_t gap = 0; gap + 1 < script.keyframes.size(); ++gap)
+        total += frames_in_gap(script, gap) + 1;
+    return total;
 }
 
-float frame_time(const Script& script, int frame_index)
+float frame_to_param(const Script& script, int frame_index)
 {
-    return static_cast<float>(frame_index) / script.timeline.frames_per_second;
+    if (script.keyframes.size() <= 1)
+        return 0.0f;
+
+    int offset = 0;
+    for (std::size_t gap = 0; gap + 1 < script.keyframes.size(); ++gap) {
+        const int steps = frames_in_gap(script, gap) + 1;
+        if (frame_index <= offset + steps)
+            return static_cast<float>(gap)
+                + static_cast<float>(frame_index - offset) / static_cast<float>(steps);
+        offset += steps;
+    }
+    return static_cast<float>(script.keyframes.size() - 1);
 }
 
-Camera camera_for(const Script& script, float time_seconds)
+Camera camera_for(const Script& script, float u)
 {
-    if (!script.orbit.enabled)
-        return camera_at(script.keyframes, time_seconds);
-
-    const OrbitSpec& orbit = script.orbit;
-    const float duration = std::max(script.timeline.duration_seconds, 1e-6f);
-    const float turns = orbit.revolutions * (time_seconds / duration);
-    const float azimuth = (orbit.azimuth_start_degrees + 360.0f * turns) * DEGREES_TO_RADIANS;
-    const float elevation = orbit.elevation_degrees * DEGREES_TO_RADIANS;
-
-    Camera camera;
-    camera.target = orbit.center;
-    camera.position = {orbit.center.x + orbit.radius * std::cos(elevation) * std::cos(azimuth),
-        orbit.center.y + orbit.radius * std::cos(elevation) * std::sin(azimuth),
-        orbit.center.z + orbit.radius * std::sin(elevation)};
-    camera.up = orbit.up;
-    camera.fov_y_degrees = orbit.fov_y_degrees;
-    return camera;
+    return camera_at(script.keyframes, u, Vec3{0.0f, 0.0f, 0.0f}, script.up);
 }
 
 } // namespace ospr

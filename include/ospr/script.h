@@ -82,22 +82,16 @@ struct RendererSpec
     Vec3 background_bottom{0.47f, 0.47f, 0.47f};
 };
 
-// A circular camera path, because three revolutions as explicit keyframes is
-// about thirty-six entries and a Catmull-Rom through points on a circle bulges
-// between them -- a slow orbit visibly breathes.
+// Orbit fitting for the preview's free camera only; the timeline's camera comes
+// from the keyframes. frame_scene fills centre and radius from the scene bounds.
 struct OrbitSpec
 {
-    bool enabled{false};
-    // Left unset, these are resolved from the loaded scene's bounds: the centre
-    // of a 1050 x 770 km domain is not something to type in by hand, and a
-    // hand-picked radius silently crops the scene.
     bool has_center{false};
     bool has_radius{false};
     Vec3 center{0.0f, 0.0f, 0.0f};
     float radius{1.0f};
     float elevation_degrees{25.0f};
     float azimuth_start_degrees{0.0f};
-    float revolutions{1.0f};
     float fov_y_degrees{40.0f};
     Vec3 up{0.0f, 0.0f, 1.0f};
 };
@@ -119,31 +113,31 @@ struct OutputSpec
     int height{720};
 };
 
-struct TimelineSpec
-{
-    float frames_per_second{30.0f};
-    float duration_seconds{4.0f};
-};
-
 struct Script
 {
     Session session;
     OutputSpec output;
-    TimelineSpec timeline;
-    OrbitSpec orbit;
+    // Frames inserted between each consecutive keyframe pair, unless a keyframe
+    // overrides it with frames_after. The camera and opacity of the frames in
+    // between are interpolated; the keyframes themselves are the only poses the
+    // user sets.
+    int frames_between{20};
+    Vec3 up{0.0f, 0.0f, 1.0f};
     std::vector<Keyframe> keyframes;
 };
 
 // Throws std::runtime_error on a missing file, malformed JSON, or a field of
-// the wrong type. Keyframes are returned sorted by time. Paths inside the
-// script resolve relative to the script's own directory.
+// the wrong type. Paths inside the script resolve relative to the script's own
+// directory.
 Script load_script(const std::string& path);
 
+// Frames the keyframes expand to, and the keyframe-index parameter u a given
+// output frame maps to.
 int frame_count(const Script& script);
-float frame_time(const Script& script, int frame_index);
+float frame_to_param(const Script& script, int frame_index);
 
-// Position on the orbit at the given time, or the interpolated keyframe camera
-// when the orbit is disabled.
-Camera camera_for(const Script& script, float time_seconds);
+// The interpolated camera at keyframe parameter u. The scene is normalised
+// about the origin, so the orbit target is (0, 0, 0).
+Camera camera_for(const Script& script, float u);
 
 } // namespace ospr

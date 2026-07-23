@@ -224,17 +224,11 @@ int main(int argc, char** argv)
                   << " s\n";
 
         const ospr::Bounds& bounds = frame_renderer.bounds();
-        ospr::frame_scene(script.orbit, bounds,
-            static_cast<float>(script.output.width) / script.output.height);
         std::cout << "scene bounds  " << bounds.lo.x << " .. " << bounds.hi.x << "   "
                   << bounds.lo.y << " .. " << bounds.hi.y << "   " << bounds.lo.z << " .. "
                   << bounds.hi.z << "\n  centre " << bounds.center().x << ", "
                   << bounds.center().y << ", " << bounds.center().z << "   diagonal "
                   << bounds.diagonal() << "\n";
-        if (script.orbit.enabled)
-            std::cout << "orbit centre " << script.orbit.center.x << ", "
-                      << script.orbit.center.y << ", " << script.orbit.center.z
-                      << "   radius " << script.orbit.radius << "\n";
 
         const int total = ospr::frame_count(script);
         const int first = options.single_frame >= 0 ? options.single_frame : 0;
@@ -244,16 +238,15 @@ int main(int argc, char** argv)
 
         for (int index = first; index <= last; ++index) {
             const auto frame_start = std::chrono::steady_clock::now();
-            const float time_seconds = ospr::frame_time(script, index);
+            const float u = ospr::frame_to_param(script, index);
             const auto& pixels = frame_renderer.render(
-                ospr::camera_for(script, time_seconds),
-                ospr::opacity_at(script.keyframes, time_seconds));
+                ospr::camera_for(script, u), ospr::opacity_at(script.keyframes, u));
 
             const std::string path = frame_path(directory, index);
             ospr::write_png_rgba(
                 path, frame_renderer.width(), frame_renderer.height(), pixels.data());
-            std::cout << "frame " << index << "/" << total - 1 << "  t=" << time_seconds
-                      << "s  " << std::chrono::duration<double>(
+            std::cout << "frame " << index << "/" << total - 1 << "  u=" << u << "  "
+                      << std::chrono::duration<double>(
                              std::chrono::steady_clock::now() - frame_start)
                              .count()
                       << " s  -> " << path << "\n";
