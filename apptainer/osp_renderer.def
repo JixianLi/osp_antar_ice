@@ -13,14 +13,23 @@ From: rockylinux:9
 
 %post
     set -eu
-    dnf -y update
+
+    # Do NOT add `dnf -y update` here. Updating the base pulls new `filesystem`
+    # and `util-linux` packages whose scriptlets chown and setcap, which fails
+    # inside the user namespace that `apptainer build --fakeroot` runs in:
+    #   Failed: filesystem-3.16-2.el9 ... util-linux-2.37.4-15.el9
+    #   Error: Transaction failed
+    # The install list below pulls neither package, so the image ships whatever
+    # the pinned base image carries.
 
     # ninja-build lives in CodeReady Builder, not AppStream; without this the
     # whole transaction fails with "Unable to find a match: ninja-build".
     dnf -y install dnf-plugins-core
     dnf config-manager --set-enabled crb
 
-    dnf -y install \
+    # Weak dependencies here are editor support files (emacs-filesystem,
+    # vim-filesystem); skipping them trims the image and the scriptlet count.
+    dnf -y --setopt=install_weak_deps=False install \
         gcc gcc-c++ make cmake ninja-build \
         git curl-minimal tar gzip unzip findutils which \
         libgomp

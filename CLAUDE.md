@@ -85,6 +85,10 @@ JSON script keys are the one place short forms are deliberate (`spp`, `fovy`,
   assumed. Never diff PNGs between the local preview and a Lonestar render.
 - **Rocky 9 needs the CRB repo for `ninja-build`.** Without it the whole `dnf`
   transaction fails and nothing installs.
+- **Never put `dnf -y update` in `%post`.** It pulls new `filesystem` and
+  `util-linux` packages whose scriptlets chown and setcap, which fails inside
+  the user namespace of `apptainer build --fakeroot`. The pinned install list
+  touches neither package; verified with a dnf dry run, not assumed.
 
 ## Common commands
 
@@ -96,13 +100,18 @@ cmake -S . -B build -G Ninja && cmake --build build
 ./build/bin/ospr_render scenes/tetra.json --frame 0 --out /tmp/check
 ```
 
-Verifying a change against the Linux target without Lonestar access, which
-catches RPATH, toolchain and fetch-script problems that a Mac build cannot:
+Verifying a change against the Lonestar6 target without Lonestar access. This
+catches RPATH, toolchain and fetch-script problems a Mac build cannot:
 
 ```bash
-rsync -a --exclude ext/ --exclude build/ --exclude lib/ --exclude out/ ./ /tmp/ospr_linux/
-docker run --rm --platform linux/amd64 -v /tmp/ospr_linux:/src rockylinux:9 bash -c \
-  'dnf -y install dnf-plugins-core >/dev/null && dnf config-manager --set-enabled crb && \
-   dnf -y install gcc-c++ cmake ninja-build git curl-minimal tar gzip unzip which >/dev/null && \
-   cd /src && ./scripts/fetch_ext.sh && cmake -S . -B build -G Ninja && cmake --build build'
+./scripts/check_linux_build.sh             # needs Docker; ~5 min under emulation
 ```
+
+**Never hand-copy the def's `%post` into an ad-hoc test.** That is exactly how a
+broken `dnf -y update` shipped: the def had a line the test did not.
+`check_linux_build.sh` extracts `%post` and the base image from
+`apptainer/osp_renderer.def` so the two cannot diverge. Change the def, re-run
+the script.
+
+It does not reproduce apptainer's `--fakeroot` user namespace, so rpm scriptlet
+failures still only surface on a real `apptainer build`.
