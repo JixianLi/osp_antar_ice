@@ -28,6 +28,9 @@ struct VolumeSpec
     ColorMapTrim rock_trim;
     float split{3.0f};
     float density_scale{1.0f};
+    // Extend the bed (deepest valid layer_id) straight down to the grid floor,
+    // so the model sits on a solid rock base instead of a thin bed surface.
+    bool fill_base{false};
 };
 
 struct SurfaceSpec

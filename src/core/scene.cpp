@@ -169,9 +169,45 @@ Scene::Scene(const Session& session)
     build_world(session);
 }
 
+namespace {
+
+// k=0 is the grid floor (deepest). Within each i-j column the valid layer_id
+// runs from the bed (lowest k with data) up to the surface; below the bed it is
+// zero. Copy the bed's value down through that empty span so the column bottoms
+// out on solid rock at the floor.
+std::vector<float> fill_base_below_bed(const DataArray& scalar, const int dims[3])
+{
+    std::vector<float> values = scalar.values;
+    const int nx = dims[0], ny = dims[1], nz = dims[2];
+    const auto at = [&](int i, int j, int k) {
+        return static_cast<std::size_t>(i) + nx * (static_cast<std::size_t>(j) + ny * k);
+    };
+    for (int j = 0; j < ny; ++j) {
+        for (int i = 0; i < nx; ++i) {
+            int bed = -1;
+            for (int k = 0; k < nz; ++k) {
+                if (values[at(i, j, k)] > 0.5f) {
+                    bed = k;
+                    break;
+                }
+            }
+            if (bed <= 0)
+                continue;
+            const float rock = values[at(i, j, bed)];
+            for (int k = 0; k < bed; ++k)
+                values[at(i, j, k)] = rock;
+        }
+    }
+    return values;
+}
+
+} // namespace
+
 void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_scale)
 {
     const DataArray* scalar = data.find(spec.scalar);
+    const std::vector<float> filled
+        = spec.fill_base ? fill_base_below_bed(*scalar, data.dims) : scalar->values;
 
     const ColorMap ice = load_colormap(spec.ice_colormap_path, "", LUT_SIZE, spec.ice_trim);
     const ColorMap rock = load_colormap(spec.rock_colormap_path, "", LUT_SIZE, spec.rock_trim);
@@ -202,7 +238,7 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_sc
 
     ospray::cpp::Volume volume("structuredRegular");
     volume.setParam("data",
-        ospray::cpp::CopiedData(scalar->values.data(),
+        ospray::cpp::CopiedData(filled.data(),
             Vec3ul{static_cast<unsigned long long>(data.dims[0]),
                 static_cast<unsigned long long>(data.dims[1]),
                 static_cast<unsigned long long>(data.dims[2])}));
