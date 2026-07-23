@@ -2,7 +2,7 @@
   "session": {
     "z_scale": 35,
     "renderer": {
-      "type": "pathtracer",
+      "type": "scivis",
       "spp": 32,
       "denoise": true,
       "shadow_samples": 1,
