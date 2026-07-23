@@ -5,6 +5,8 @@
       "type": "pathtracer",
       "spp": 32,
       "denoise": true,
+      "shadow_samples": 1,
+      "ao_samples": 2,
       "background": {
         "top": [
           1.0,

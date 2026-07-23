@@ -78,6 +78,13 @@ struct RendererSpec
     std::string type{"pathtracer"};
     int samples_per_pixel{32};
     bool denoise{true};
+    // Shadow and soft-light rays per hit, the path tracer's lightSamples. Named
+    // for what it buys rather than for the OSPRay parameter, which is what the
+    // preview slider calls it too.
+    int light_samples{1};
+    // Ambient-occlusion rays, scivis only. Each renderer ignores the other's
+    // count, so one session file can carry both.
+    int ao_samples{2};
     // Vertical backplate gradient, interpolated in HSV. top is the top of the
     // frame, bottom the bottom; equal values give a flat background.
     Vec3 background_top{0.0f, 0.0f, 0.0f};

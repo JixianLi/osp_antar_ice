@@ -182,6 +182,11 @@ Script load_script(const std::string& path)
             script.session.renderer.samples_per_pixel = renderer.at("spp").get<int>();
         if (renderer.contains("denoise"))
             script.session.renderer.denoise = renderer.at("denoise").get<bool>();
+        if (renderer.contains("shadow_samples"))
+            script.session.renderer.light_samples
+                = renderer.at("shadow_samples").get<int>();
+        if (renderer.contains("ao_samples"))
+            script.session.renderer.ao_samples = renderer.at("ao_samples").get<int>();
         if (renderer.contains("background")) {
             const json& background = renderer.at("background");
             if (background.is_array()) {

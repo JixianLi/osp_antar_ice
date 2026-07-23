@@ -61,6 +61,8 @@ FrameRenderer::FrameRenderer(
     , pixels_(static_cast<std::size_t>(width) * height)
 {
     renderer_type_ = script.session.renderer.type;
+    ao_samples_ = std::max(0, script.session.renderer.ao_samples);
+    light_samples_ = std::max(1, script.session.renderer.light_samples);
     // One sample per renderFrame call; the accumulation buffer does the
     // averaging, which lets the preview reuse this class progressively.
     renderer_.setParam("pixelSamples", 1);
