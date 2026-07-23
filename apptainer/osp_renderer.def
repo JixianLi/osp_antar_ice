@@ -14,6 +14,20 @@ From: rockylinux:9
 %post
     set -eu
 
+    # Apptainer bind-mounts the host /tmp over the container's. Without an
+    # /etc/subuid entry and without the fakeroot binary the build drops to a
+    # root-mapped namespace, where that mount can leave /tmp missing outright:
+    #   Cannot create temporary file - mkstemp '/tmp/librepo-tmp-XXXXXX':
+    #   No such file or directory
+    # ENOENT, not permission -- the directory is not there. dnf reaches /tmp
+    # through librepo's g_get_tmp_dir(), which is just TMPDIR with a /tmp
+    # fallback, so pointing TMPDIR at a directory inside the image takes the
+    # host mount out of the picture. /var/tmp is no good: apptainer's
+    # `mount tmp` binds that one too.
+    mkdir -p /build-tmp
+    chmod 1777 /build-tmp
+    export TMPDIR=/build-tmp
+
     # Do NOT add `dnf -y update` here. Updating the base pulls new `filesystem`
     # and `util-linux` packages whose scriptlets chown and setcap, which fails
     # inside the user namespace that `apptainer build --fakeroot` runs in:
@@ -48,13 +62,13 @@ From: rockylinux:9
     # i.e. GCC >= 9 -- on GCC 8 the link silently needs -lstdc++fs.
     cmake --version
     g++ --version
-    cat > /tmp/fs_check.cpp <<'EOF'
+    cat > "$TMPDIR/fs_check.cpp" <<'EOF'
 #include <filesystem>
 int main() { return std::filesystem::path("/a/b").has_parent_path() ? 0 : 1; }
 EOF
-    g++ -std=c++17 -o /tmp/fs_check /tmp/fs_check.cpp
-    /tmp/fs_check
-    rm -f /tmp/fs_check /tmp/fs_check.cpp
+    g++ -std=c++17 -o "$TMPDIR/fs_check" "$TMPDIR/fs_check.cpp"
+    "$TMPDIR/fs_check"
+    rm -rf /build-tmp
 
 %environment
     export LC_ALL=C.UTF-8
@@ -80,8 +94,16 @@ EOF
 
         module load tacc-apptainer
         export APPTAINER_CACHEDIR=$SCRATCH/.apptainer
+        export APPTAINER_TMPDIR=$SCRATCH/.apptainer/tmp
+        mkdir -p "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR"
         cd $SCRATCH
         apptainer build --fakeroot osp_renderer.sif <path>/apptainer/osp_renderer.def
+
+    If the build reports "User not listed in /etc/subuid" and "fakeroot command
+    not found", --fakeroot did nothing and it fell back to a root-mapped
+    namespace. It can still finish -- %post keeps its temporaries inside the
+    image for exactly that case -- but a compute node via idev is the supported
+    place to build; login nodes are where the namespace tooling is missing.
 
     Then, from the osp_renderer checkout:
 
