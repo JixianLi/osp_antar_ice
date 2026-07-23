@@ -1,13 +1,19 @@
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <string>
+#include <vector>
 
+#include "ospr/colormap.h"
 #include "ospr/image.h"
 #include "ospr/keyframe.h"
 #include "ospr/render.h"
 #include "ospr/script.h"
+#include "ospr/vtk_xml.h"
 
 namespace {
 
@@ -15,14 +21,21 @@ struct Options
 {
     std::string script_path;
     std::string output_directory;
+    std::string info_path;
+    std::string swatch_colormap;
+    std::string swatch_png;
     int single_frame{-1};
 };
 
 void print_usage()
 {
     std::cerr << "usage: ospr_render <script.json> [--out DIR] [--frame N]\n"
-                 "  --out DIR    override the script's output.dir\n"
-                 "  --frame N    render only frame N\n";
+                 "       ospr_render --info <file.vti>\n"
+                 "       ospr_render --swatch <colormap.xml> <out.png>\n"
+                 "  --out DIR      override the script's output.dir\n"
+                 "  --frame N      render only frame N\n"
+                 "  --info FILE    print a volume's bounds and arrays, then exit\n"
+                 "  --swatch A B   write colormap A as a PNG strip to B, then exit\n";
 }
 
 Options parse_options(int argc, char** argv)
@@ -34,6 +47,11 @@ Options parse_options(int argc, char** argv)
             options.output_directory = argv[++index];
         } else if (arg == "--frame" && index + 1 < argc) {
             options.single_frame = std::stoi(argv[++index]);
+        } else if (arg == "--info" && index + 1 < argc) {
+            options.info_path = argv[++index];
+        } else if (arg == "--swatch" && index + 2 < argc) {
+            options.swatch_colormap = argv[++index];
+            options.swatch_png = argv[++index];
         } else if (arg == "-h" || arg == "--help") {
             print_usage();
             std::exit(0);
@@ -43,9 +61,74 @@ Options parse_options(int argc, char** argv)
             throw std::runtime_error("unexpected argument: " + arg);
         }
     }
-    if (options.script_path.empty())
+    if (options.script_path.empty() && options.info_path.empty()
+        && options.swatch_colormap.empty())
         throw std::runtime_error("no script given");
     return options;
+}
+
+// Authoring keyframes for a 1050 x 770 km domain by hand needs the bounds in
+// front of you, and the finite range matters because the resampler leaves both
+// NaN and out-of-domain fill in the scalar arrays.
+void print_volume_info(const std::string& path)
+{
+    const ospr::ImageData data = ospr::read_vti(path);
+    std::cout << path << "\n"
+              << "  dims     " << data.dims[0] << " x " << data.dims[1] << " x "
+              << data.dims[2] << "  (" << data.point_count() << " points)\n"
+              << "  origin   " << data.origin[0] << ", " << data.origin[1] << ", "
+              << data.origin[2] << "\n"
+              << "  spacing  " << data.spacing[0] << ", " << data.spacing[1] << ", "
+              << data.spacing[2] << "\n";
+
+    std::cout << "  bounds";
+    for (int axis = 0; axis < 3; ++axis) {
+        const double lo = data.origin[axis];
+        const double hi = lo + data.spacing[axis] * (data.dims[axis] - 1);
+        std::cout << "   " << lo << " .. " << hi;
+    }
+    std::cout << "\n  arrays\n";
+
+    for (const ospr::DataArray& array : data.point_arrays) {
+        float lo = std::numeric_limits<float>::infinity();
+        float hi = -std::numeric_limits<float>::infinity();
+        std::size_t nan_count = 0;
+        for (const float value : array.values) {
+            if (std::isnan(value)) {
+                ++nan_count;
+                continue;
+            }
+            lo = std::min(lo, value);
+            hi = std::max(hi, value);
+        }
+        std::cout << "    " << array.name << "  finite range " << lo << " .. " << hi
+                  << "   nan " << nan_count << " ("
+                  << (100.0 * nan_count / array.values.size()) << "%)\n";
+    }
+}
+
+// Checking a colormap by eye before committing it to a long render, and the
+// only way to diff our Lab interpolation against ParaView's.
+void write_colormap_swatch(const std::string& colormap_path, const std::string& png_path)
+{
+    constexpr int WIDTH = 512;
+    constexpr int HEIGHT = 64;
+    const ospr::ColorMap colormap = ospr::load_paraview_colormap(colormap_path, "", WIDTH);
+
+    std::vector<uint32_t> pixels(static_cast<std::size_t>(WIDTH) * HEIGHT);
+    for (int column = 0; column < WIDTH; ++column) {
+        const ospr::Vec3 color = colormap.colors[column];
+        const auto channel = [](float value) {
+            return static_cast<uint32_t>(std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
+        };
+        const uint32_t packed = channel(color.x) | (channel(color.y) << 8)
+            | (channel(color.z) << 16) | (0xFFu << 24);
+        for (int row = 0; row < HEIGHT; ++row)
+            pixels[static_cast<std::size_t>(row) * WIDTH + column] = packed;
+    }
+
+    ospr::write_png_rgba(png_path, WIDTH, HEIGHT, pixels.data());
+    std::cout << colormap_path << "  -> " << png_path << "  (\"" << colormap.name << "\")\n";
 }
 
 std::string frame_path(const std::filesystem::path& directory, int frame_index)
@@ -61,6 +144,17 @@ int main(int argc, char** argv)
 {
     try {
         const Options options = parse_options(argc, argv);
+
+        if (!options.info_path.empty()) {
+            print_volume_info(options.info_path);
+            return 0;
+        }
+
+        if (!options.swatch_colormap.empty()) {
+            write_colormap_swatch(options.swatch_colormap, options.swatch_png);
+            return 0;
+        }
+
         const ospr::Script script = ospr::load_script(options.script_path);
 
         const std::filesystem::path directory = options.output_directory.empty()
