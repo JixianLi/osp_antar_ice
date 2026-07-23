@@ -433,6 +433,11 @@ int main(int argc, char** argv)
                     renderer.scene().set_z_scale(z_scale);
                     renderer.reset();
                 }
+                float equalize = renderer.scene().layer_equalize();
+                if (ImGui::SliderFloat("layer equalize", &equalize, 0.0f, 1.0f, "%.2f")) {
+                    renderer.scene().set_layer_equalize(equalize);
+                    renderer.reset();
+                }
                 for (std::size_t index = 0; index < renderer.scene().volume_count();
                      ++index) {
                     ImGui::PushID(static_cast<int>(1000 + index));

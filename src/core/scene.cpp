@@ -171,33 +171,80 @@ Scene::Scene(const Session& session)
 
 namespace {
 
+std::size_t voxel_index(const int dims[3], int i, int j, int k)
+{
+    return static_cast<std::size_t>(i) + dims[0] * (static_cast<std::size_t>(j) + dims[1] * k);
+}
+
 // k=0 is the grid floor (deepest). Within each i-j column the valid layer_id
 // runs from the bed (lowest k with data) up to the surface; below the bed it is
 // zero. Copy the bed's value down through that empty span so the column bottoms
 // out on solid rock at the floor.
-std::vector<float> fill_base_below_bed(const DataArray& scalar, const int dims[3])
+std::vector<float> fill_base_below_bed(std::vector<float> values, const int dims[3])
 {
-    std::vector<float> values = scalar.values;
-    const int nx = dims[0], ny = dims[1], nz = dims[2];
-    const auto at = [&](int i, int j, int k) {
-        return static_cast<std::size_t>(i) + nx * (static_cast<std::size_t>(j) + ny * k);
-    };
-    for (int j = 0; j < ny; ++j) {
-        for (int i = 0; i < nx; ++i) {
+    const int nz = dims[2];
+    for (int j = 0; j < dims[1]; ++j) {
+        for (int i = 0; i < dims[0]; ++i) {
             int bed = -1;
             for (int k = 0; k < nz; ++k) {
-                if (values[at(i, j, k)] > 0.5f) {
+                if (values[voxel_index(dims, i, j, k)] > 0.5f) {
                     bed = k;
                     break;
                 }
             }
             if (bed <= 0)
                 continue;
-            const float rock = values[at(i, j, bed)];
+            const float rock = values[voxel_index(dims, i, j, bed)];
             for (int k = 0; k < bed; ++k)
-                values[at(i, j, k)] = rock;
+                values[voxel_index(dims, i, j, k)] = rock;
         }
     }
+    return values;
+}
+
+// The isochrone bands are physically thin and uneven, so during the peel some
+// layers barely appear. Blend each column's layer_id toward a version that is
+// linear in voxel height, which -- the grid being uniform in z -- makes every
+// band an equal real thickness. factor 0 keeps true depths, 1 equalises fully.
+// This moves isochrone depths: a deliberate stylisation, like the z exaggeration.
+std::vector<float> equalize_layer_thickness(
+    std::vector<float> values, const int dims[3], float factor)
+{
+    const int nz = dims[2];
+    for (int j = 0; j < dims[1]; ++j) {
+        for (int i = 0; i < dims[0]; ++i) {
+            int bed = -1;
+            int surface = -1;
+            for (int k = 0; k < nz; ++k) {
+                if (values[voxel_index(dims, i, j, k)] > 0.5f) {
+                    if (bed < 0)
+                        bed = k;
+                    surface = k;
+                }
+            }
+            if (bed < 0 || surface <= bed)
+                continue;
+            const float span = static_cast<float>(surface - bed);
+            for (int k = bed; k <= surface; ++k) {
+                const float height = static_cast<float>(k - bed) / span; // 0 bed, 1 surface
+                const float equalized = 5.0f - 4.0f * height;            // 5 bed .. 1 surface
+                const std::size_t index = voxel_index(dims, i, j, k);
+                values[index] = lerp(values[index], equalized, factor);
+            }
+        }
+    }
+    return values;
+}
+
+// Equalise the ice bands first (on the true column), then extend the bed to the
+// floor. The order matters: fill_base reads the deepest valid value as rock.
+std::vector<float> process_scalar(
+    std::vector<float> values, const int dims[3], float equalize, bool fill_base)
+{
+    if (equalize > 0.0f)
+        values = equalize_layer_thickness(std::move(values), dims, equalize);
+    if (fill_base)
+        values = fill_base_below_bed(std::move(values), dims);
     return values;
 }
 
@@ -206,8 +253,10 @@ std::vector<float> fill_base_below_bed(const DataArray& scalar, const int dims[3
 void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_scale)
 {
     const DataArray* scalar = data.find(spec.scalar);
+    // Equalise the ice bands first (operates on the true column), then extend the
+    // bed to the floor.
     const std::vector<float> filled
-        = spec.fill_base ? fill_base_below_bed(*scalar, data.dims) : scalar->values;
+        = process_scalar(scalar->values, data.dims, spec.layer_equalize, spec.fill_base);
 
     const ColorMap ice = load_colormap(spec.ice_colormap_path, "", LUT_SIZE, spec.ice_trim);
     const ColorMap rock = load_colormap(spec.rock_colormap_path, "", LUT_SIZE, spec.rock_trim);
@@ -261,7 +310,14 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_sc
     model.setParam("densityScale", spec.density_scale);
     model.commit();
 
-    volumes_.push_back({spec, transfer, model, volume, grid_origin, grid_spacing});
+    VolumeEntry entry{spec, transfer, model, volume, grid_origin, grid_spacing};
+    entry.source_scalar = scalar->values;
+    entry.dims[0] = data.dims[0];
+    entry.dims[1] = data.dims[1];
+    entry.dims[2] = data.dims[2];
+    entry.fill_base = spec.fill_base;
+    entry.layer_equalize = spec.layer_equalize;
+    volumes_.push_back(std::move(entry));
 }
 
 void Scene::add_surface(const StructuredGrid& grid, const SurfaceSpec& spec, float z_scale)
@@ -455,6 +511,28 @@ void Scene::set_z_scale(float z_scale)
 
     group_.commit();
     instance_.commit();
+    world_.commit();
+}
+
+float Scene::layer_equalize() const
+{
+    return volumes_.empty() ? 0.0f : volumes_.front().layer_equalize;
+}
+
+void Scene::set_layer_equalize(float factor)
+{
+    for (VolumeEntry& entry : volumes_) {
+        entry.layer_equalize = factor;
+        const std::vector<float> values = process_scalar(
+            entry.source_scalar, entry.dims, factor, entry.fill_base);
+        entry.volume.setParam("data",
+            ospray::cpp::CopiedData(values.data(),
+                Vec3ul{static_cast<unsigned long long>(entry.dims[0]),
+                    static_cast<unsigned long long>(entry.dims[1]),
+                    static_cast<unsigned long long>(entry.dims[2])}));
+        entry.volume.commit();
+        entry.model.commit();
+    }
     world_.commit();
 }
 

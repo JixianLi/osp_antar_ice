@@ -45,6 +45,10 @@ public:
     // origin -- no re-read, no re-normalise, just multiply z by the ratio.
     void set_z_scale(float z_scale);
     float z_scale() const { return z_scale_; }
+    // Re-derives the volume scalar (equalise then fill) from the retained source
+    // and re-uploads it, so layer thickness is tunable live.
+    void set_layer_equalize(float factor);
+    float layer_equalize() const;
 
     std::size_t volume_count() const { return volumes_.size(); }
     std::size_t surface_count() const { return surfaces_.size(); }
@@ -65,6 +69,12 @@ private:
         // without recomputing from the source header.
         Vec3 grid_origin;
         Vec3 grid_spacing;
+        // Source scalar and processing options, retained so layer_equalize can
+        // re-derive the field live without re-reading the .vti.
+        std::vector<float> source_scalar;
+        int dims[3]{0, 0, 0};
+        bool fill_base{false};
+        float layer_equalize{0.0f};
     };
 
     struct SurfaceEntry

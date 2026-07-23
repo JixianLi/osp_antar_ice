@@ -31,6 +31,9 @@ struct VolumeSpec
     // Extend the bed (deepest valid layer_id) straight down to the grid floor,
     // so the model sits on a solid rock base instead of a thin bed surface.
     bool fill_base{false};
+    // 0 keeps true layer thickness; 1 makes every ice band an equal thickness so
+    // thin isochrones become visible. A deliberate depth stylisation.
+    float layer_equalize{0.0f};
 };
 
 struct SurfaceSpec

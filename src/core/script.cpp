@@ -99,6 +99,8 @@ VolumeSpec read_volume(
         volume.rock_trim = read_trim(color.at("rock_trim"), where + ".color.rock_trim");
     if (color.contains("split"))
         volume.split = color.at("split").get<float>();
+    if (node.contains("layer_equalize"))
+        volume.layer_equalize = node.at("layer_equalize").get<float>();
     if (node.contains("fill_base"))
         volume.fill_base = node.at("fill_base").get<bool>();
     return volume;

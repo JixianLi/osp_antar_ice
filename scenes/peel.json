@@ -37,7 +37,8 @@
           "rock_map": "terrain_bed.json",
           "split": 3.0
         },
-        "fill_base": true
+        "fill_base": true,
+        "layer_equalize": 0.6
       }
     ],
     "lights": [
