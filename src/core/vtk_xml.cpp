@@ -1,5 +1,6 @@
 #include "ospr/vtk_xml.h"
 
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -166,6 +167,120 @@ std::vector<char> decode_block(const std::string& file,
     return out;
 }
 
+// Everything both file types share: the appended-data split, the root-level
+// validation, and the flags the block decoder needs.
+struct Container
+{
+    std::string file;
+    pugi::xml_document document;
+    std::size_t appended_start{0};
+    bool compressed{false};
+    bool wide_header{false};
+    pugi::xml_node grid;
+    pugi::xml_node piece;
+};
+
+Container open_container(const std::string& path, const std::string& expected_type)
+{
+    Container container;
+    container.file = read_file(path);
+
+    const std::size_t appended_tag = container.file.find(APPENDED_TAG);
+    require(appended_tag != std::string::npos,
+        path + ": no <AppendedData> section; only appended format is supported");
+    const std::size_t underscore = container.file.find('_', appended_tag);
+    require(underscore != std::string::npos, path + ": malformed <AppendedData> section");
+    container.appended_start = underscore + 1;
+
+    std::string header = container.file.substr(0, appended_tag);
+    header += "</VTKFile>";
+
+    const pugi::xml_parse_result parsed
+        = container.document.load_buffer(header.data(), header.size());
+    require(parsed, path + ": XML parse error: " + parsed.description());
+
+    const pugi::xml_node root = container.document.child("VTKFile");
+    require(root, path + ": no <VTKFile> root");
+    require(std::string(root.attribute("type").value()) == expected_type,
+        path + ": expected type=\"" + expected_type + "\", got \""
+            + root.attribute("type").value() + "\"");
+    require(std::string(root.attribute("byte_order").value()) == "LittleEndian",
+        path + ": only LittleEndian is supported");
+
+    const std::string header_type = root.attribute("header_type").value();
+    require(header_type.empty() || header_type == "UInt32" || header_type == "UInt64",
+        path + ": unsupported header_type " + header_type);
+    container.wide_header = header_type == "UInt64";
+
+    const std::string compressor = root.attribute("compressor").value();
+    require(compressor.empty() || compressor == "vtkZLibDataCompressor",
+        path + ": unsupported compressor " + compressor);
+    container.compressed = !compressor.empty();
+
+    container.grid = root.child(expected_type.c_str());
+    require(container.grid, path + ": no <" + expected_type + "> element");
+
+    container.piece = container.grid.child("Piece");
+    require(container.piece, path + ": no <Piece> element");
+    require(!container.piece.next_sibling("Piece"),
+        path + ": multi-piece files are not supported");
+    return container;
+}
+
+void read_extent_dims(const pugi::xml_node& grid, const std::string& path, int dims[3])
+{
+    std::istringstream stream(grid.attribute("WholeExtent").value());
+    int lo[3]{}, hi[3]{};
+    stream >> lo[0] >> hi[0] >> lo[1] >> hi[1] >> lo[2] >> hi[2];
+    require(static_cast<bool>(stream), path + ": malformed WholeExtent");
+    for (int axis = 0; axis < 3; ++axis)
+        dims[axis] = hi[axis] - lo[axis] + 1;
+}
+
+std::vector<float> decode_data_array(const Container& container,
+    const pugi::xml_node& node,
+    const std::string& path,
+    std::size_t expected_elements)
+{
+    const std::string name = node.attribute("Name").value();
+    const std::string format = node.attribute("format").value();
+    require(format == "appended",
+        path + ": array " + name + " uses format=\"" + format
+            + "\"; only \"appended\" is supported");
+
+    const std::string type = node.attribute("type").value();
+    const std::vector<char> bytes = decode_block(container.file,
+        container.appended_start,
+        node.attribute("offset").as_ullong(),
+        container.compressed,
+        container.wide_header,
+        name);
+
+    require(bytes.size() == expected_elements * size_of_vtk_type(type),
+        path + ": array " + name + " decoded to " + std::to_string(bytes.size())
+            + " bytes, expected "
+            + std::to_string(expected_elements * size_of_vtk_type(type)));
+
+    std::vector<float> values;
+    widen_by_type(type, bytes.data(), expected_elements, values);
+    return values;
+}
+
+std::vector<DataArray> read_point_arrays(
+    const Container& container, const std::string& path, std::size_t point_count)
+{
+    std::vector<DataArray> arrays;
+    for (pugi::xml_node node : container.piece.child("PointData").children("DataArray")) {
+        DataArray array;
+        array.name = node.attribute("Name").value();
+        array.components = node.attribute("NumberOfComponents").as_int(1);
+        array.values = decode_data_array(
+            container, node, path, point_count * array.components);
+        arrays.push_back(std::move(array));
+    }
+    return arrays;
+}
+
 } // namespace
 
 const DataArray* ImageData::find(const std::string& name) const
@@ -183,46 +298,11 @@ std::size_t ImageData::point_count() const
 
 ImageData read_vti(const std::string& path)
 {
-    const std::string file = read_file(path);
-
-    const std::size_t appended_tag = file.find(APPENDED_TAG);
-    require(appended_tag != std::string::npos,
-        path + ": no <AppendedData> section; only appended format is supported");
-    const std::size_t underscore = file.find('_', appended_tag);
-    require(underscore != std::string::npos, path + ": malformed <AppendedData> section");
-    const std::size_t appended_start = underscore + 1;
-
-    std::string header = file.substr(0, appended_tag);
-    header += "</VTKFile>";
-
-    pugi::xml_document document;
-    const pugi::xml_parse_result parsed = document.load_buffer(header.data(), header.size());
-    require(parsed, path + ": XML parse error: " + parsed.description());
-
-    const pugi::xml_node root = document.child("VTKFile");
-    require(root, path + ": no <VTKFile> root");
-    require(std::string(root.attribute("type").value()) == "ImageData",
-        path + ": expected type=\"ImageData\", got \""
-            + root.attribute("type").value() + "\"");
-    require(std::string(root.attribute("byte_order").value()) == "LittleEndian",
-        path + ": only LittleEndian is supported");
-
-    const std::string header_type = root.attribute("header_type").value();
-    require(header_type.empty() || header_type == "UInt32" || header_type == "UInt64",
-        path + ": unsupported header_type " + header_type);
-    const bool wide_header = header_type == "UInt64";
-
-    const std::string compressor = root.attribute("compressor").value();
-    require(compressor.empty() || compressor == "vtkZLibDataCompressor",
-        path + ": unsupported compressor " + compressor);
-    const bool compressed = !compressor.empty();
-
-    const pugi::xml_node image = root.child("ImageData");
-    require(image, path + ": no <ImageData> element");
+    const Container container = open_container(path, "ImageData");
 
     ImageData data;
 
-    const std::string direction = image.attribute("Direction").value();
+    const std::string direction = container.grid.attribute("Direction").value();
     if (!direction.empty()) {
         std::istringstream stream(direction);
         double matrix[9]{};
@@ -234,57 +314,55 @@ ImageData read_vti(const std::string& path)
                 path + ": non-identity Direction is not supported");
     }
 
+    read_extent_dims(container.grid, path, data.dims);
     {
-        std::istringstream stream(image.attribute("WholeExtent").value());
-        int lo[3]{}, hi[3]{};
-        stream >> lo[0] >> hi[0] >> lo[1] >> hi[1] >> lo[2] >> hi[2];
-        require(static_cast<bool>(stream), path + ": malformed WholeExtent");
-        for (int axis = 0; axis < 3; ++axis)
-            data.dims[axis] = hi[axis] - lo[axis] + 1;
-    }
-    {
-        std::istringstream stream(image.attribute("Origin").value());
+        std::istringstream stream(container.grid.attribute("Origin").value());
         stream >> data.origin[0] >> data.origin[1] >> data.origin[2];
     }
     {
-        std::istringstream stream(image.attribute("Spacing").value());
+        std::istringstream stream(container.grid.attribute("Spacing").value());
         stream >> data.spacing[0] >> data.spacing[1] >> data.spacing[2];
     }
 
-    const pugi::xml_node piece = image.child("Piece");
-    require(piece, path + ": no <Piece> element");
-    require(!piece.next_sibling("Piece"), path + ": multi-piece files are not supported");
-
-    for (pugi::xml_node node : piece.child("PointData").children("DataArray")) {
-        const std::string format = node.attribute("format").value();
-        const std::string name = node.attribute("Name").value();
-        require(format == "appended",
-            path + ": array " + name + " uses format=\"" + format
-                + "\"; only \"appended\" is supported");
-
-        DataArray array;
-        array.name = name;
-        array.components = node.attribute("NumberOfComponents").as_int(1);
-
-        const std::string type = node.attribute("type").value();
-        const std::vector<char> bytes = decode_block(file,
-            appended_start,
-            node.attribute("offset").as_ullong(),
-            compressed,
-            wide_header,
-            name);
-
-        const std::size_t element_size = size_of_vtk_type(type);
-        const std::size_t expected = data.point_count() * array.components;
-        require(bytes.size() == expected * element_size,
-            path + ": array " + name + " decoded to " + std::to_string(bytes.size())
-                + " bytes, expected " + std::to_string(expected * element_size));
-
-        widen_by_type(type, bytes.data(), expected, array.values);
-        data.point_arrays.push_back(std::move(array));
-    }
-
+    data.point_arrays = read_point_arrays(container, path, data.point_count());
     return data;
+}
+
+const DataArray* StructuredGrid::find(const std::string& name) const
+{
+    for (const DataArray& array : point_arrays)
+        if (array.name == name)
+            return &array;
+    return nullptr;
+}
+
+std::size_t StructuredGrid::point_count() const
+{
+    return static_cast<std::size_t>(dims[0]) * dims[1] * dims[2];
+}
+
+StructuredGrid read_vts(const std::string& path)
+{
+    const Container container = open_container(path, "StructuredGrid");
+
+    StructuredGrid grid;
+    read_extent_dims(container.grid, path, grid.dims);
+
+    const pugi::xml_node points = container.piece.child("Points");
+    require(points, path + ": no <Points> element");
+    const pugi::xml_node coordinates = points.child("DataArray");
+    require(coordinates, path + ": no <DataArray> under <Points>");
+    require(coordinates.attribute("NumberOfComponents").as_int(3) == 3,
+        path + ": point coordinates must have 3 components");
+
+    const std::vector<float> flat
+        = decode_data_array(container, coordinates, path, grid.point_count() * 3);
+    grid.points.resize(grid.point_count());
+    for (std::size_t index = 0; index < grid.points.size(); ++index)
+        grid.points[index] = {flat[index * 3], flat[index * 3 + 1], flat[index * 3 + 2]};
+
+    grid.point_arrays = read_point_arrays(container, path, grid.point_count());
+    return grid;
 }
 
 } // namespace ospr

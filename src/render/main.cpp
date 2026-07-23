@@ -70,6 +70,50 @@ Options parse_options(int argc, char** argv)
 // Authoring keyframes for a 1050 x 770 km domain by hand needs the bounds in
 // front of you, and the finite range matters because the resampler leaves both
 // NaN and out-of-domain fill in the scalar arrays.
+void print_arrays(const std::vector<ospr::DataArray>& arrays)
+{
+    std::cout << "  arrays\n";
+    for (const ospr::DataArray& array : arrays) {
+        float lo = std::numeric_limits<float>::infinity();
+        float hi = -std::numeric_limits<float>::infinity();
+        double sum = 0.0;
+        std::size_t nan_count = 0;
+        for (const float value : array.values) {
+            if (std::isnan(value)) {
+                ++nan_count;
+                continue;
+            }
+            lo = std::min(lo, value);
+            hi = std::max(hi, value);
+            sum += value;
+        }
+        const std::size_t finite = array.values.size() - nan_count;
+        std::cout << "    " << array.name << "  finite range " << lo << " .. " << hi
+                  << "   mean " << (finite ? sum / finite : 0.0) << "   nan " << nan_count
+                  << " (" << (100.0 * nan_count / array.values.size()) << "%)\n";
+    }
+}
+
+void print_surface_info(const std::string& path)
+{
+    const ospr::StructuredGrid grid = ospr::read_vts(path);
+    std::cout << path << "\n"
+              << "  dims     " << grid.dims[0] << " x " << grid.dims[1] << " x "
+              << grid.dims[2] << "  (" << grid.point_count() << " points)\n";
+
+    ospr::Vec3 lo{std::numeric_limits<float>::infinity(),
+        std::numeric_limits<float>::infinity(),
+        std::numeric_limits<float>::infinity()};
+    ospr::Vec3 hi{-lo.x, -lo.y, -lo.z};
+    for (const ospr::Vec3& point : grid.points) {
+        lo = {std::min(lo.x, point.x), std::min(lo.y, point.y), std::min(lo.z, point.z)};
+        hi = {std::max(hi.x, point.x), std::max(hi.y, point.y), std::max(hi.z, point.z)};
+    }
+    std::cout << "  bounds   " << lo.x << " .. " << hi.x << "   " << lo.y << " .. " << hi.y
+              << "   " << lo.z << " .. " << hi.z << "\n";
+    print_arrays(grid.point_arrays);
+}
+
 void print_volume_info(const std::string& path)
 {
     const ospr::ImageData data = ospr::read_vti(path);
@@ -87,24 +131,8 @@ void print_volume_info(const std::string& path)
         const double hi = lo + data.spacing[axis] * (data.dims[axis] - 1);
         std::cout << "   " << lo << " .. " << hi;
     }
-    std::cout << "\n  arrays\n";
-
-    for (const ospr::DataArray& array : data.point_arrays) {
-        float lo = std::numeric_limits<float>::infinity();
-        float hi = -std::numeric_limits<float>::infinity();
-        std::size_t nan_count = 0;
-        for (const float value : array.values) {
-            if (std::isnan(value)) {
-                ++nan_count;
-                continue;
-            }
-            lo = std::min(lo, value);
-            hi = std::max(hi, value);
-        }
-        std::cout << "    " << array.name << "  finite range " << lo << " .. " << hi
-                  << "   nan " << nan_count << " ("
-                  << (100.0 * nan_count / array.values.size()) << "%)\n";
-    }
+    std::cout << "\n";
+    print_arrays(data.point_arrays);
 }
 
 // Checking a colormap by eye before committing it to a long render, and the
@@ -146,7 +174,13 @@ int main(int argc, char** argv)
         const Options options = parse_options(argc, argv);
 
         if (!options.info_path.empty()) {
-            print_volume_info(options.info_path);
+            const bool is_surface
+                = options.info_path.size() > 4
+                && options.info_path.compare(options.info_path.size() - 4, 4, ".vts") == 0;
+            if (is_surface)
+                print_surface_info(options.info_path);
+            else
+                print_volume_info(options.info_path);
             return 0;
         }
 
