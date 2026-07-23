@@ -162,6 +162,8 @@ LightSpec read_light(const json& node, const std::string& where)
         light.intensity = node.at("intensity").get<float>();
     if (node.contains("angular_diameter"))
         light.angular_diameter = node.at("angular_diameter").get<float>();
+    if (node.contains("visible"))
+        light.visible = node.at("visible").get<bool>();
     return light;
 }
 
@@ -251,10 +253,14 @@ Script load_script(const std::string& path)
         const json& camera = root.at("camera");
         if (camera.contains("mode") && camera.at("mode").get<std::string>() == "orbit") {
             script.orbit.enabled = true;
-            if (camera.contains("center"))
+            if (camera.contains("center")) {
                 script.orbit.center = read_vec3(camera.at("center"), "camera.center");
-            if (camera.contains("radius"))
+                script.orbit.has_center = true;
+            }
+            if (camera.contains("radius")) {
                 script.orbit.radius = camera.at("radius").get<float>();
+                script.orbit.has_radius = true;
+            }
             if (camera.contains("elevation"))
                 script.orbit.elevation_degrees = camera.at("elevation").get<float>();
             if (camera.contains("azimuth_start"))

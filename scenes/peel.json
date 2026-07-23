@@ -81,7 +81,8 @@
           0.85,
           0.9,
           1.0
-        ]
+        ],
+        "visible": false
       },
       {
         "type": "distant",
@@ -96,7 +97,8 @@
           1.0,
           0.97,
           0.92
-        ]
+        ],
+        "visible": false
       }
     ]
   },
@@ -111,12 +113,6 @@
   },
   "camera": {
     "mode": "orbit",
-    "center": [
-      225000,
-      15000,
-      -75000
-    ],
-    "radius": 1050000,
     "elevation": 42,
     "azimuth_start": 0,
     "revolutions": 3,

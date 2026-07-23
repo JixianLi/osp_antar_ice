@@ -52,6 +52,22 @@ bool finite(Vec3 point)
 
 } // namespace
 
+void frame_scene(OrbitSpec& orbit, const Bounds& bounds)
+{
+    if (!orbit.has_center)
+        orbit.center = bounds.center();
+    if (!orbit.has_radius) {
+        // Distance at which a sphere of radius r subtends the vertical field of
+        // view: d = r / sin(fov/2). The extra margin keeps the silhouette off
+        // the frame edge.
+        constexpr float DEGREES_TO_RADIANS = 3.14159265358979323846f / 180.0f;
+        const float sphere = bounds.diagonal() * 0.5f;
+        const float half_fov
+            = std::max(orbit.fov_y_degrees * 0.5f * DEGREES_TO_RADIANS, 1e-3f);
+        orbit.radius = 1.1f * sphere / std::sin(half_fov);
+    }
+}
+
 Scene::Scene(const Session& session)
 {
     for (const VolumeSpec& volume : session.volumes)
@@ -230,6 +246,7 @@ void Scene::build_world(const Session& session)
         ospray::cpp::Light light(spec.type);
         light.setParam("color", spec.color);
         light.setParam("intensity", spec.intensity);
+        light.setParam("visible", spec.visible);
         if (spec.type == "distant" || spec.type == "sunSky") {
             light.setParam("direction", spec.direction);
             if (spec.type == "distant")
@@ -273,6 +290,7 @@ void Scene::set_lights(const std::vector<LightSpec>& specs)
         ospray::cpp::Light light(spec.type);
         light.setParam("color", spec.color);
         light.setParam("intensity", spec.intensity);
+        light.setParam("visible", spec.visible);
         if (spec.type == "distant" || spec.type == "sunSky") {
             light.setParam("direction", spec.direction);
             if (spec.type == "distant")

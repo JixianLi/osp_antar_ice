@@ -18,6 +18,11 @@ struct Bounds
     float diagonal() const { return length(hi - lo); }
 };
 
+// Points the orbit at the scene and pulls the camera back far enough that the
+// bounding sphere fits the vertical field of view. Only fills in what the
+// script left unspecified.
+void frame_scene(OrbitSpec& orbit, const Bounds& bounds);
+
 // Loads every object in the session once, then re-applies the peel each frame.
 // The colour LUT is baked at construction; only opacity changes with time, so a
 // frame costs a small LUT rebuild rather than a reload.

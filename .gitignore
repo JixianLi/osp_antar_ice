@@ -2,3 +2,4 @@ ext/
 build/
 lib/
 out/
+imgui.ini

@@ -13,6 +13,7 @@
 #include "ospr/image.h"
 #include "ospr/keyframe.h"
 #include "ospr/render.h"
+#include "ospr/scene.h"
 #include "ospr/script.h"
 #include "ospr/vtk_xml.h"
 
@@ -199,7 +200,7 @@ int main(int argc, char** argv)
             return 0;
         }
 
-        const ospr::Script script = ospr::load_script(options.script_path);
+        ospr::Script script = ospr::load_script(options.script_path);
 
         const std::filesystem::path directory = options.output_directory.empty()
             ? std::filesystem::path(script.output.directory)
@@ -223,11 +224,16 @@ int main(int argc, char** argv)
                   << " s\n";
 
         const ospr::Bounds& bounds = frame_renderer.bounds();
+        ospr::frame_scene(script.orbit, bounds);
         std::cout << "scene bounds  " << bounds.lo.x << " .. " << bounds.hi.x << "   "
                   << bounds.lo.y << " .. " << bounds.hi.y << "   " << bounds.lo.z << " .. "
                   << bounds.hi.z << "\n  centre " << bounds.center().x << ", "
                   << bounds.center().y << ", " << bounds.center().z << "   diagonal "
                   << bounds.diagonal() << "\n";
+        if (script.orbit.enabled)
+            std::cout << "orbit centre " << script.orbit.center.x << ", "
+                      << script.orbit.center.y << ", " << script.orbit.center.z
+                      << "   radius " << script.orbit.radius << "\n";
 
         const int total = ospr::frame_count(script);
         const int first = options.single_frame >= 0 ? options.single_frame : 0;

@@ -59,6 +59,9 @@ struct LightSpec
     Vec3 color{1.0f, 1.0f, 1.0f};
     float intensity{1.0f};
     float angular_diameter{0.53f};
+    // OSPRay lights are visible to camera rays by default, so an ambient light
+    // paints itself over backgroundColor. Fill light almost never wants that.
+    bool visible{true};
 };
 
 struct RendererSpec
@@ -75,6 +78,11 @@ struct RendererSpec
 struct OrbitSpec
 {
     bool enabled{false};
+    // Left unset, these are resolved from the loaded scene's bounds: the centre
+    // of a 1050 x 770 km domain is not something to type in by hand, and a
+    // hand-picked radius silently crops the scene.
+    bool has_center{false};
+    bool has_radius{false};
     Vec3 center{0.0f, 0.0f, 0.0f};
     float radius{1.0f};
     float elevation_degrees{25.0f};

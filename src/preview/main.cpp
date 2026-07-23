@@ -22,6 +22,7 @@
 
 #include "ospr/keyframe.h"
 #include "ospr/render.h"
+#include "ospr/scene.h"
 #include "ospr/script.h"
 
 namespace {
@@ -128,16 +129,16 @@ int main(int argc, char** argv)
         ospr::FrameRenderer renderer(
             script, PREVIEW_WIDTH, PREVIEW_HEIGHT, script.session.renderer.samples_per_pixel);
         const ospr::Bounds& bounds = renderer.bounds();
+        ospr::frame_scene(script.orbit, bounds);
         std::cout << "ready\n" << std::flush;
 
         OrbitState orbit;
-        orbit.center = script.orbit.enabled ? script.orbit.center : bounds.center();
-        orbit.radius = script.orbit.enabled ? script.orbit.radius : bounds.diagonal();
         orbit.azimuth_degrees = script.orbit.azimuth_start_degrees;
-        orbit.elevation_degrees
-            = script.orbit.enabled ? script.orbit.elevation_degrees : 30.0f;
-        orbit.fov_y_degrees = script.orbit.enabled ? script.orbit.fov_y_degrees : 40.0f;
+        orbit.elevation_degrees = script.orbit.elevation_degrees;
+        orbit.fov_y_degrees = script.orbit.fov_y_degrees;
         orbit.up = script.orbit.up;
+        orbit.center = script.orbit.center;
+        orbit.radius = script.orbit.radius;
 
         std::vector<ospr::LightSpec> lights = script.session.lights;
         const GLuint texture = make_texture();
@@ -186,6 +187,17 @@ int main(int argc, char** argv)
             }
 
             if (ImGui::CollapsingHeader("camera", ImGuiTreeNodeFlags_DefaultOpen)) {
+                if (ImGui::Button("frame scene")) {
+                    ospr::OrbitSpec fitted;
+                    fitted.fov_y_degrees = orbit.fov_y_degrees;
+                    ospr::frame_scene(fitted, bounds);
+                    orbit.center = fitted.center;
+                    orbit.radius = fitted.radius;
+                    follow_script_camera = false;
+                }
+                ImGui::SameLine();
+                ImGui::Text("centre %.0f %.0f %.0f",
+                    orbit.center.x, orbit.center.y, orbit.center.z);
                 ImGui::SliderFloat("azimuth", &orbit.azimuth_degrees, -360.0f, 360.0f);
                 ImGui::SliderFloat("elevation", &orbit.elevation_degrees, -89.0f, 89.0f);
                 ImGui::SliderFloat("fov", &orbit.fov_y_degrees, 10.0f, 90.0f);
