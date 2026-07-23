@@ -1,0 +1,93 @@
+Bootstrap: docker
+From: rockylinux:9
+
+# Toolchain-only image: it carries the compilers and the archive tools that
+# scripts/fetch_ext.sh needs, but it does NOT bake in osp_renderer itself. The
+# source tree stays on the host filesystem and is bind-mounted, so a code change
+# is a rebuild, not an image rebuild.
+
+%labels
+    Name        osp_renderer-toolchain
+    Description Build and run environment for osp_renderer on Lonestar6
+    Target      linux/x86_64, single node, CPU rendering only
+
+%post
+    set -eu
+    dnf -y update
+
+    # ninja-build lives in CodeReady Builder, not AppStream; without this the
+    # whole transaction fails with "Unable to find a match: ninja-build".
+    dnf -y install dnf-plugins-core
+    dnf config-manager --set-enabled crb
+
+    dnf -y install \
+        gcc gcc-c++ make cmake ninja-build \
+        git curl-minimal tar gzip unzip findutils which \
+        libgomp
+    dnf -y clean all
+    rm -rf /var/cache/dnf
+
+    # Fail the image build rather than the first job if the toolchain regresses.
+    # osp_renderer needs CMake >= 3.24 and std::filesystem in libstdc++ proper,
+    # i.e. GCC >= 9 -- on GCC 8 the link silently needs -lstdc++fs.
+    cmake --version
+    g++ --version
+    cat > /tmp/fs_check.cpp <<'EOF'
+#include <filesystem>
+int main() { return std::filesystem::path("/a/b").has_parent_path() ? 0 : 1; }
+EOF
+    g++ -std=c++17 -o /tmp/fs_check /tmp/fs_check.cpp
+    /tmp/fs_check
+    rm -f /tmp/fs_check /tmp/fs_check.cpp
+
+%environment
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+    # OSPRay otherwise grabs every hardware thread on the node regardless of the
+    # SLURM allocation; SLURM_CPUS_ON_NODE is set inside a job, unset on a login
+    # node, where the fallback keeps a stray build from saturating the machine.
+    export OSPRAY_NUM_THREADS=${SLURM_CPUS_ON_NODE:-4}
+
+%runscript
+    exec "$@"
+
+%test
+    cmake --version
+    g++ --version
+    ninja --version
+
+%help
+    Toolchain container for osp_renderer. The source tree lives on the host.
+
+    Build the image (on a Lonestar6 node, not a Mac -- apptainer build needs
+    Linux). Keep the cache off $HOME, it is small there:
+
+        module load tacc-apptainer
+        export APPTAINER_CACHEDIR=$SCRATCH/.apptainer
+        cd $SCRATCH
+        apptainer build --fakeroot osp_renderer.sif <path>/apptainer/osp_renderer.def
+
+    Then, from the osp_renderer checkout:
+
+        apptainer exec $SCRATCH/osp_renderer.sif ./scripts/fetch_ext.sh
+        apptainer exec $SCRATCH/osp_renderer.sif cmake -S . -B build -G Ninja
+        apptainer exec $SCRATCH/osp_renderer.sif cmake --build build
+        apptainer exec $SCRATCH/osp_renderer.sif ./build/bin/ospr_render scenes/tetra.json
+
+    fetch_ext.sh branches on `uname -m`, so inside the container it pulls
+    ospray-3.2.0.x86_64.linux.tar.gz rather than the arm64 macOS zip. ext/ is
+    gitignored and per-platform: do not share one checkout between your Mac and
+    Lonestar over a synced filesystem without re-running fetch_ext.sh --force.
+
+    IMPORTANT -- the build bakes ext/ospray/lib into the executable's RPATH as an
+    absolute path. Apptainer bind-mounts $HOME, $WORK and $SCRATCH at their real
+    paths on Lonestar, so this resolves as long as you run the binary from the
+    same absolute path it was built at. If you relocate the checkout, reconfigure
+    CMake.
+
+    Thread count: %environment sets OSPRAY_NUM_THREADS from SLURM_CPUS_ON_NODE.
+    Override per run with --osp:num-threads=N or by exporting OSPRAY_NUM_THREADS.
+
+    This image is CPU-only by design. OSPRay's GPU backend is SYCL/Level-Zero and
+    supports Intel GPUs only, so Lonestar6's A100 and H100 nodes cannot be used
+    for rendering; request a plain compute node.
