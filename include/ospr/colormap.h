@@ -17,11 +17,22 @@ struct ColorMap
     std::vector<float> opacities; // resolution entries, from the file's o attribute
 };
 
-// Reads a ParaView <ColorMaps><ColorMap> XML file and resamples the first map
-// (or the one named `name`, if given) to `resolution` entries. Honours
-// space="RGB" and space="Lab"; anything else throws rather than silently
-// interpolating in the wrong space.
-ColorMap load_paraview_colormap(
-    const std::string& path, const std::string& name = "", int resolution = 256);
+// Restrict the map to a sub-range of its own domain before resampling, so a
+// ramp whose far end is too dark can be cut back without editing the file.
+struct ColorMapTrim
+{
+    float lo{0.0f};
+    float hi{1.0f};
+};
+
+// Reads a ParaView colormap and resamples it to `resolution` entries. Dispatches
+// on extension: .xml is <ColorMaps><ColorMap><Point x o r g b/>, .json is the
+// [{"ColorSpace", "Name", "RGBPoints":[x,r,g,b,...]}] export. Both honour RGB
+// and Lab/CIELAB interpolation and throw on any other space rather than
+// silently interpolating in the wrong one.
+ColorMap load_colormap(const std::string& path,
+    const std::string& name = "",
+    int resolution = 256,
+    ColorMapTrim trim = {});
 
 } // namespace ospr

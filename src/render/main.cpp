@@ -24,6 +24,7 @@ struct Options
     std::string info_path;
     std::string swatch_colormap;
     std::string swatch_png;
+    ospr::ColorMapTrim trim;
     int single_frame{-1};
 };
 
@@ -35,7 +36,8 @@ void print_usage()
                  "  --out DIR      override the script's output.dir\n"
                  "  --frame N      render only frame N\n"
                  "  --info FILE    print a volume's bounds and arrays, then exit\n"
-                 "  --swatch A B   write colormap A as a PNG strip to B, then exit\n";
+                 "  --swatch A B   write colormap A as a PNG strip to B, then exit\n"
+                 "  --trim LO HI   restrict a colormap to a sub-range of itself\n";
 }
 
 Options parse_options(int argc, char** argv)
@@ -49,6 +51,9 @@ Options parse_options(int argc, char** argv)
             options.single_frame = std::stoi(argv[++index]);
         } else if (arg == "--info" && index + 1 < argc) {
             options.info_path = argv[++index];
+        } else if (arg == "--trim" && index + 2 < argc) {
+            options.trim.lo = std::stof(argv[++index]);
+            options.trim.hi = std::stof(argv[++index]);
         } else if (arg == "--swatch" && index + 2 < argc) {
             options.swatch_colormap = argv[++index];
             options.swatch_png = argv[++index];
@@ -137,11 +142,12 @@ void print_volume_info(const std::string& path)
 
 // Checking a colormap by eye before committing it to a long render, and the
 // only way to diff our Lab interpolation against ParaView's.
-void write_colormap_swatch(const std::string& colormap_path, const std::string& png_path)
+void write_colormap_swatch(
+    const std::string& colormap_path, const std::string& png_path, ospr::ColorMapTrim trim)
 {
     constexpr int WIDTH = 512;
     constexpr int HEIGHT = 64;
-    const ospr::ColorMap colormap = ospr::load_paraview_colormap(colormap_path, "", WIDTH);
+    const ospr::ColorMap colormap = ospr::load_colormap(colormap_path, "", WIDTH, trim);
 
     std::vector<uint32_t> pixels(static_cast<std::size_t>(WIDTH) * HEIGHT);
     for (int column = 0; column < WIDTH; ++column) {
@@ -185,7 +191,7 @@ int main(int argc, char** argv)
         }
 
         if (!options.swatch_colormap.empty()) {
-            write_colormap_swatch(options.swatch_colormap, options.swatch_png);
+            write_colormap_swatch(options.swatch_colormap, options.swatch_png, options.trim);
             return 0;
         }
 

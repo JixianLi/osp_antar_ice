@@ -1,0 +1,18 @@
+[
+  {
+    "ColorSpace": "CIELAB",
+    "Name": "terrain_bed",
+    "NanColor": [0.25, 0.0, 0.0],
+    "Comment": "Bedrock depth ramp. Warm browns chosen to sit opposite c16's cool teal/slate ice. Shallow bed (high ground) is a light ochre, deep bed (valleys) a very dark warm brown. It deliberately stops short of black: under a path tracer a pure-black surface returns no light and loses all form, so the darkest stop keeps luminance near 0.02 with hue intact.",
+    "RGBPoints": [
+      0.00, 0.659, 0.518, 0.361,
+      0.15, 0.561, 0.420, 0.282,
+      0.30, 0.439, 0.314, 0.227,
+      0.45, 0.333, 0.224, 0.173,
+      0.60, 0.243, 0.157, 0.129,
+      0.75, 0.173, 0.114, 0.098,
+      0.88, 0.118, 0.078, 0.071,
+      1.00, 0.078, 0.055, 0.051
+    ]
+  }
+]
