@@ -38,7 +38,7 @@
           "split": 3.0
         },
         "fill_base": true,
-        "layer_equalize": 0.6
+        "layer_fill": 0.35
       }
     ],
     "lights": [

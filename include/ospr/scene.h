@@ -45,10 +45,11 @@ public:
     // origin -- no re-read, no re-normalise, just multiply z by the ratio.
     void set_z_scale(float z_scale);
     float z_scale() const { return z_scale_; }
-    // Re-derives the volume scalar (equalise then fill) from the retained source
-    // and re-uploads it, so layer thickness is tunable live.
-    void set_layer_equalize(float factor);
-    float layer_equalize() const;
+    // Re-derives the volume scalar from the retained source, so band thickness is
+    // tunable live. Costlier than the other setters: the fill deepens the grid,
+    // so this rebuilds the volume rather than re-parameterising it.
+    void set_layer_fill(float fraction);
+    float layer_fill() const;
 
     std::size_t volume_count() const { return volumes_.size(); }
     std::size_t surface_count() const { return surfaces_.size(); }
@@ -69,12 +70,17 @@ private:
         // without recomputing from the source header.
         Vec3 grid_origin;
         Vec3 grid_spacing;
-        // Source scalar and processing options, retained so layer_equalize can
-        // re-derive the field live without re-reading the .vti.
+        // Where the origin sits with no layer fill. set_layer_fill works from
+        // this rather than from grid_origin, which would drift as the fill is
+        // dragged back and forth.
+        Vec3 base_grid_origin;
+        // Source scalar and processing options, retained so layer_fill can
+        // re-derive the field live without re-reading the .vti. These are the
+        // dimensions of the source, not of the current (deepened) grid.
         std::vector<float> source_scalar;
-        int dims[3]{0, 0, 0};
+        int source_dims[3]{0, 0, 0};
         bool fill_base{false};
-        float layer_equalize{0.0f};
+        float layer_fill{0.0f};
     };
 
     struct SurfaceEntry

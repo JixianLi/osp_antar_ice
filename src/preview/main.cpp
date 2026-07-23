@@ -261,6 +261,8 @@ int main(int argc, char** argv)
         float play_accumulator = 0.0f;
         bool follow_script_camera = true;
         bool dirty = true;
+        // Held across frames because the fill is applied on release, not on drag.
+        float layer_fill = renderer.scene().layer_fill();
 
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
@@ -433,11 +435,19 @@ int main(int argc, char** argv)
                     renderer.scene().set_z_scale(z_scale);
                     renderer.reset();
                 }
-                float equalize = renderer.scene().layer_equalize();
-                if (ImGui::SliderFloat("layer equalize", &equalize, 0.0f, 1.0f, "%.2f")) {
-                    renderer.scene().set_layer_equalize(equalize);
+                // Applied on release: unlike the other knobs this one re-derives
+                // every column and rebuilds the volume, far too slow to run on
+                // each frame of a drag.
+                ImGui::SliderFloat("layer fill", &layer_fill, 0.0f, 0.6f, "%.2f");
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    renderer.scene().set_layer_fill(layer_fill);
                     renderer.reset();
                 }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Thickest ice band reaches this fraction of the bed relief.\n"
+                        "Below about 0.25 the target is shorter than that band\n"
+                        "already is, so nothing changes.");
                 for (std::size_t index = 0; index < renderer.scene().volume_count();
                      ++index) {
                     ImGui::PushID(static_cast<int>(1000 + index));

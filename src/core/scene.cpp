@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 #include <stdexcept>
+#include <utility>
 
 #include "ospr/colormap.h"
 #include "ospr/vtk_xml.h"
@@ -202,50 +203,179 @@ std::vector<float> fill_base_below_bed(std::vector<float> values, const int dims
     return values;
 }
 
-// The isochrone bands are physically thin and uneven, so during the peel some
-// layers barely appear. Blend each column's layer_id toward a version that is
-// linear in voxel height, which -- the grid being uniform in z -- makes every
-// band an equal real thickness. factor 0 keeps true depths, 1 equalises fully.
-// This moves isochrone depths: a deliberate stylisation, like the z exaggeration.
-std::vector<float> equalize_layer_thickness(
-    std::vector<float> values, const int dims[3], float factor)
+// Linear interpolation of y(x) at query, extrapolating from the two end samples
+// beyond either end. xs must be strictly increasing.
+float interp_extrapolate(
+    float query, const std::vector<float>& xs, const std::vector<float>& ys)
 {
-    const int nz = dims[2];
+    const std::size_t last = xs.size() - 1;
+    if (query <= xs[0])
+        return ys[0] + (query - xs[0]) * (ys[1] - ys[0]) / (xs[1] - xs[0]);
+    if (query >= xs[last])
+        return ys[last]
+            + (query - xs[last]) * (ys[last] - ys[last - 1]) / (xs[last] - xs[last - 1]);
+    const std::size_t hi
+        = static_cast<std::size_t>(std::upper_bound(xs.begin(), xs.end(), query) - xs.begin());
+    return lerp(ys[hi - 1], ys[hi], (query - xs[hi - 1]) / (xs[hi] - xs[hi - 1]));
+}
+
+// The five isochrone surfaces of one column, as the fractional voxel heights
+// where layer_id is 1, 2, 3, 4, 5 -- so entry 0 is the top surface and entry 4
+// the bed. layer_id falls with height but reaches neither endpoint at a voxel
+// centre (the true surface and bed lie between samples, typically 1.07 and 4.91),
+// so the two outermost crossings are extrapolated rather than clamped.
+// False if the column holds too little data to interpolate.
+bool column_crossings(
+    const std::vector<float>& values, const int dims[3], int i, int j, float crossing[5])
+{
+    int low = -1;
+    int high = -1;
+    for (int k = 0; k < dims[2]; ++k) {
+        if (values[voxel_index(dims, i, j, k)] > 0.5f) {
+            if (low < 0)
+                low = k;
+            high = k;
+        }
+    }
+    if (low < 0 || high <= low)
+        return false;
+
+    // Ordered by layer_id ascending, repeats dropped, so the interpolation gets a
+    // strictly increasing abscissa even where the profile is locally flat.
+    std::vector<std::pair<float, float>> samples;
+    samples.reserve(static_cast<std::size_t>(high - low + 1));
+    for (int k = low; k <= high; ++k)
+        samples.push_back({values[voxel_index(dims, i, j, k)], static_cast<float>(k)});
+    std::sort(samples.begin(), samples.end(),
+        [](const std::pair<float, float>& a, const std::pair<float, float>& b) {
+            return a.first < b.first;
+        });
+
+    std::vector<float> layer;
+    std::vector<float> height;
+    for (const std::pair<float, float>& sample_point : samples) {
+        if (!layer.empty() && sample_point.first <= layer.back())
+            continue;
+        layer.push_back(sample_point.first);
+        height.push_back(sample_point.second);
+    }
+    if (layer.size() < 2)
+        return false;
+
+    for (int surface = 0; surface < 5; ++surface)
+        crossing[surface] = interp_extrapolate(static_cast<float>(surface + 1), layer, height);
+    return true;
+}
+
+struct ProcessedVolume
+{
+    std::vector<float> values;
+    int nz{0};
+};
+
+// Thickens the four ice bands so the thin isochrones are visible at all. Every
+// surface is translated straight down by the fill accumulated above it, which is
+// a rigid shift -- each surface keeps its shape exactly, unlike a remap toward
+// uniform thickness. The top surface is pinned, so the stack grows downward and
+// the grid gains voxels underneath.
+//
+// fraction sets the target: the thickest of the four bands is raised to
+// fraction * bed relief, and that one absolute depth is added to all four. It
+// follows that nothing happens until fraction exceeds thickest_band / bed_relief
+// (about 0.25 for the Singh data) -- below that the target is shorter than the
+// band that already exists.
+//
+// All of this is in voxels, so the result is independent of z_scale and of the
+// voxel size. Band ratios are deliberately distorted; the depth contours are
+// what carry the true scale.
+ProcessedVolume additive_layer_fill(
+    const std::vector<float>& values, const int dims[3], float fraction)
+{
+    const std::size_t columns = static_cast<std::size_t>(dims[0]) * dims[1];
+    std::vector<float> crossings(columns * 5, 0.0f);
+    std::vector<char> valid(columns, 0);
+
+    double band_total[4] = {0.0, 0.0, 0.0, 0.0};
+    std::size_t band_count = 0;
+    float bed_low = std::numeric_limits<float>::infinity();
+    float bed_high = -std::numeric_limits<float>::infinity();
+
     for (int j = 0; j < dims[1]; ++j) {
         for (int i = 0; i < dims[0]; ++i) {
-            int bed = -1;
-            int surface = -1;
-            for (int k = 0; k < nz; ++k) {
-                if (values[voxel_index(dims, i, j, k)] > 0.5f) {
-                    if (bed < 0)
-                        bed = k;
-                    surface = k;
-                }
-            }
-            if (bed < 0 || surface <= bed)
+            float crossing[5];
+            if (!column_crossings(values, dims, i, j, crossing))
                 continue;
-            const float span = static_cast<float>(surface - bed);
-            for (int k = bed; k <= surface; ++k) {
-                const float height = static_cast<float>(k - bed) / span; // 0 bed, 1 surface
-                const float equalized = 5.0f - 4.0f * height;            // 5 bed .. 1 surface
-                const std::size_t index = voxel_index(dims, i, j, k);
-                values[index] = lerp(values[index], equalized, factor);
+            const std::size_t column = static_cast<std::size_t>(i) + dims[0] * j;
+            valid[column] = 1;
+            for (int surface = 0; surface < 5; ++surface)
+                crossings[column * 5 + surface] = crossing[surface];
+            for (int band = 0; band < 4; ++band)
+                band_total[band] += crossing[band] - crossing[band + 1];
+            ++band_count;
+            bed_low = std::min(bed_low, crossing[4]);
+            bed_high = std::max(bed_high, crossing[4]);
+        }
+    }
+    if (band_count == 0)
+        return {values, dims[2]};
+
+    float thickest = 0.0f;
+    for (int band = 0; band < 4; ++band)
+        thickest = std::max(thickest, static_cast<float>(band_total[band] / band_count));
+
+    const float fill = fraction * (bed_high - bed_low) - thickest;
+    if (fill <= 0.0f)
+        return {values, dims[2]};
+
+    // Room for the bed's total drop plus however far the deepest bed already sits
+    // below the old floor, and one spare voxel so fill_base always has a floor to
+    // write into.
+    const int extra = static_cast<int>(std::ceil(4.0f * fill - bed_low)) + 1;
+    const int filled_nz = dims[2] + extra;
+    const int filled_dims[3] = {dims[0], dims[1], filled_nz};
+
+    std::vector<float> filled(columns * filled_nz, 0.0f);
+    for (int j = 0; j < dims[1]; ++j) {
+        for (int i = 0; i < dims[0]; ++i) {
+            const std::size_t column = static_cast<std::size_t>(i) + dims[0] * j;
+            if (!valid[column])
+                continue;
+            // extra maps an old height onto the taller grid; surface s then drops
+            // by s fills, leaving the top surface (s = 0) where it was.
+            float shifted[5];
+            for (int surface = 0; surface < 5; ++surface)
+                shifted[surface]
+                    = crossings[column * 5 + surface] + extra - surface * fill;
+
+            for (int k = 0; k < filled_nz; ++k) {
+                const float height = static_cast<float>(k);
+                if (height > shifted[0] || height < shifted[4])
+                    continue;
+                int band = 0;
+                while (band < 3 && height < shifted[band + 1])
+                    ++band;
+                const float span = std::max(shifted[band] - shifted[band + 1], 1e-6f);
+                filled[voxel_index(filled_dims, i, j, k)]
+                    = static_cast<float>(band + 1) + (shifted[band] - height) / span;
             }
         }
     }
-    return values;
+    return {std::move(filled), filled_nz};
 }
 
-// Equalise the ice bands first (on the true column), then extend the bed to the
-// floor. The order matters: fill_base reads the deepest valid value as rock.
-std::vector<float> process_scalar(
-    std::vector<float> values, const int dims[3], float equalize, bool fill_base)
+// Fill the bands first -- it reads the true column and decides how far the grid
+// has to grow -- then extend the bed to the floor of whatever grid came out.
+ProcessedVolume process_scalar(
+    const std::vector<float>& values, const int dims[3], float layer_fill, bool fill_base)
 {
-    if (equalize > 0.0f)
-        values = equalize_layer_thickness(std::move(values), dims, equalize);
-    if (fill_base)
-        values = fill_base_below_bed(std::move(values), dims);
-    return values;
+    ProcessedVolume processed = layer_fill > 0.0f
+        ? additive_layer_fill(values, dims, layer_fill)
+        : ProcessedVolume{values, dims[2]};
+    if (fill_base) {
+        const int filled_dims[3] = {dims[0], dims[1], processed.nz};
+        processed.values = fill_base_below_bed(std::move(processed.values), filled_dims);
+    }
+    return processed;
 }
 
 } // namespace
@@ -253,10 +383,9 @@ std::vector<float> process_scalar(
 void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_scale)
 {
     const DataArray* scalar = data.find(spec.scalar);
-    // Equalise the ice bands first (operates on the true column), then extend the
-    // bed to the floor.
-    const std::vector<float> filled
-        = process_scalar(scalar->values, data.dims, spec.layer_equalize, spec.fill_base);
+    const ProcessedVolume processed
+        = process_scalar(scalar->values, data.dims, spec.layer_fill, spec.fill_base);
+    const int extra = processed.nz - data.dims[2];
 
     const ColorMap ice = load_colormap(spec.ice_colormap_path, "", LUT_SIZE, spec.ice_trim);
     const ColorMap rock = load_colormap(spec.rock_colormap_path, "", LUT_SIZE, spec.rock_trim);
@@ -287,20 +416,24 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_sc
 
     ospray::cpp::Volume volume("structuredRegular");
     volume.setParam("data",
-        ospray::cpp::CopiedData(filled.data(),
+        ospray::cpp::CopiedData(processed.values.data(),
             Vec3ul{static_cast<unsigned long long>(data.dims[0]),
                 static_cast<unsigned long long>(data.dims[1]),
-                static_cast<unsigned long long>(data.dims[2])}));
+                static_cast<unsigned long long>(processed.nz)}));
     // gridOrigin is a point (centre-subtract then scale); gridSpacing is a step
     // vector (scale only). A voxel step in normalised space is the metre step
     // times scale_.
-    const Vec3 grid_origin = to_normalized({static_cast<float>(data.origin[0]),
+    const Vec3 base_grid_origin = to_normalized({static_cast<float>(data.origin[0]),
         static_cast<float>(data.origin[1]),
         static_cast<float>(data.origin[2] * z_scale)});
     const Vec3 grid_spacing = Vec3{static_cast<float>(data.spacing[0]),
                                  static_cast<float>(data.spacing[1]),
                                  static_cast<float>(data.spacing[2] * z_scale)}
         * scale_;
+    // The layer fill grows the grid downward: the top stays put and the extra
+    // voxels appear below the old floor, so the origin drops by that many steps.
+    Vec3 grid_origin = base_grid_origin;
+    grid_origin.z -= extra * grid_spacing.z;
     volume.setParam("gridOrigin", grid_origin);
     volume.setParam("gridSpacing", grid_spacing);
     volume.commit();
@@ -311,12 +444,14 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_sc
     model.commit();
 
     VolumeEntry entry{spec, transfer, model, volume, grid_origin, grid_spacing};
+    entry.base_grid_origin = base_grid_origin;
     entry.source_scalar = scalar->values;
-    entry.dims[0] = data.dims[0];
-    entry.dims[1] = data.dims[1];
-    entry.dims[2] = data.dims[2];
+    entry.source_dims[0] = data.dims[0];
+    entry.source_dims[1] = data.dims[1];
+    entry.source_dims[2] = data.dims[2];
     entry.fill_base = spec.fill_base;
-    entry.layer_equalize = spec.layer_equalize;
+    entry.layer_fill = spec.layer_fill;
+    bounds_.lo.z = std::min(bounds_.lo.z, grid_origin.z);
     volumes_.push_back(std::move(entry));
 }
 
@@ -490,6 +625,7 @@ void Scene::set_z_scale(float z_scale)
     z_scale_ = z_scale;
 
     for (VolumeEntry& entry : volumes_) {
+        entry.base_grid_origin.z *= ratio;
         entry.grid_origin.z *= ratio;
         entry.grid_spacing.z *= ratio;
         entry.volume.setParam("gridOrigin", entry.grid_origin);
@@ -514,25 +650,54 @@ void Scene::set_z_scale(float z_scale)
     world_.commit();
 }
 
-float Scene::layer_equalize() const
+float Scene::layer_fill() const
 {
-    return volumes_.empty() ? 0.0f : volumes_.front().layer_equalize;
+    return volumes_.empty() ? 0.0f : volumes_.front().layer_fill;
 }
 
-void Scene::set_layer_equalize(float factor)
+// The fill changes how deep the grid is, and a structuredRegular takes its extent
+// from the dimensions of its data array, which cannot be changed under a
+// committed volume. So the volume and its model are rebuilt and the group is
+// re-pointed at them; the transfer function survives, which is what holds the
+// colours and the current peel.
+void Scene::set_layer_fill(float fraction)
 {
     for (VolumeEntry& entry : volumes_) {
-        entry.layer_equalize = factor;
-        const std::vector<float> values = process_scalar(
-            entry.source_scalar, entry.dims, factor, entry.fill_base);
-        entry.volume.setParam("data",
-            ospray::cpp::CopiedData(values.data(),
-                Vec3ul{static_cast<unsigned long long>(entry.dims[0]),
-                    static_cast<unsigned long long>(entry.dims[1]),
-                    static_cast<unsigned long long>(entry.dims[2])}));
-        entry.volume.commit();
-        entry.model.commit();
+        entry.layer_fill = fraction;
+        const ProcessedVolume processed = process_scalar(
+            entry.source_scalar, entry.source_dims, fraction, entry.fill_base);
+        entry.grid_origin = entry.base_grid_origin;
+        entry.grid_origin.z
+            -= (processed.nz - entry.source_dims[2]) * entry.grid_spacing.z;
+
+        ospray::cpp::Volume volume("structuredRegular");
+        volume.setParam("data",
+            ospray::cpp::CopiedData(processed.values.data(),
+                Vec3ul{static_cast<unsigned long long>(entry.source_dims[0]),
+                    static_cast<unsigned long long>(entry.source_dims[1]),
+                    static_cast<unsigned long long>(processed.nz)}));
+        volume.setParam("gridOrigin", entry.grid_origin);
+        volume.setParam("gridSpacing", entry.grid_spacing);
+        volume.commit();
+
+        ospray::cpp::VolumetricModel model(volume);
+        model.setParam("transferFunction", entry.transfer);
+        model.setParam("densityScale", entry.spec.density_scale);
+        model.commit();
+
+        entry.volume = volume;
+        entry.model = model;
+        // Only ever grows: a fill that shrinks leaves the bounds loose, which
+        // costs nothing but a slightly wide "frame scene".
+        bounds_.lo.z = std::min(bounds_.lo.z, entry.grid_origin.z);
     }
+
+    std::vector<ospray::cpp::VolumetricModel> models;
+    for (const VolumeEntry& entry : volumes_)
+        models.push_back(entry.model);
+    group_.setParam("volume", ospray::cpp::CopiedData(models));
+    group_.commit();
+    instance_.commit();
     world_.commit();
 }
 
