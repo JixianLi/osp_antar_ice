@@ -2,10 +2,10 @@
   "session": {
     "z_scale": 35,
     "renderer": {
-      "type": "scivis",
+      "type": "pathtracer",
       "spp": 32,
       "denoise": true,
-      "shadow_samples": 1,
+      "shadow_samples": 16,
       "ao_samples": 2,
       "background": {
         "top": [
@@ -29,7 +29,7 @@
           0,
           5
         ],
-        "density_scale": 8.0,
+        "density_scale": 100.0,
         "color": {
           "ice_map": "c16.json",
           "ice_trim": [
@@ -61,12 +61,12 @@
           -0.5,
           -0.79
         ],
-        "intensity": 1.2,
+        "intensity": 4.0,
         "angular_diameter": 2.0,
         "color": [
           1.0,
-          0.97,
-          0.92
+          1.0,
+          1.0
         ],
         "visible": false
       }
