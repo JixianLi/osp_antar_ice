@@ -27,9 +27,16 @@
 
 namespace {
 
-constexpr int PREVIEW_WIDTH = 256;
-constexpr int PREVIEW_HEIGHT = 144;
+// Preview is always 16:9 to match the 4K output; the selector picks the long
+// side. 1024 x 576 is a real preview at speed, not a thumbnail.
+constexpr float VIEW_ASPECT = 16.0f / 9.0f;
+constexpr int RESOLUTION_LONG_SIDES[] = {128, 256, 512, 1024};
 constexpr float DEGREES_TO_RADIANS = 3.14159265358979323846f / 180.0f;
+
+int height_for(int long_side)
+{
+    return static_cast<int>(std::lround(long_side / VIEW_ASPECT));
+}
 
 // Free orbit the mouse drives, seeded from the script's orbit so the preview
 // opens on the shot rather than somewhere arbitrary.
@@ -75,7 +82,7 @@ GLuint make_texture()
 // the bottom of the image, so the quad is drawn with its v coordinate flipped.
 void draw_render(GLuint texture, float view_width, float view_height)
 {
-    const float target = static_cast<float>(PREVIEW_WIDTH) / PREVIEW_HEIGHT;
+    const float target = VIEW_ASPECT;
     const float actual = view_width / view_height;
     float width = view_width;
     float height = view_height;
@@ -127,12 +134,15 @@ int main(int argc, char** argv)
         int ospray_argc = argc;
         const ospr::Device device(ospray_argc, const_cast<const char**>(argv));
 
+        int resolution_index = 1; // 256
+        int preview_width = RESOLUTION_LONG_SIDES[resolution_index];
+        int preview_height = height_for(preview_width);
+
         std::cout << "loading scene...\n" << std::flush;
         ospr::FrameRenderer renderer(
-            script, PREVIEW_WIDTH, PREVIEW_HEIGHT, script.session.renderer.samples_per_pixel);
+            script, preview_width, preview_height, script.session.renderer.samples_per_pixel);
         const ospr::Bounds& bounds = renderer.bounds();
-        ospr::frame_scene(script.orbit, bounds,
-            static_cast<float>(PREVIEW_WIDTH) / PREVIEW_HEIGHT);
+        ospr::frame_scene(script.orbit, bounds, VIEW_ASPECT);
         std::cout << "ready\n" << std::flush;
 
         OrbitState orbit;
@@ -178,10 +188,16 @@ int main(int argc, char** argv)
             ImGui::Begin("session");
 
             ImGui::Text("%d x %d   %d / %d spp",
-                PREVIEW_WIDTH,
-                PREVIEW_HEIGHT,
+                preview_width,
+                preview_height,
                 renderer.accumulated(),
                 renderer.target_samples());
+            static const char* const RESOLUTION_LABELS[] = {"128", "256", "512", "1024"};
+            if (ImGui::Combo("resolution", &resolution_index, RESOLUTION_LABELS, 4)) {
+                preview_width = RESOLUTION_LONG_SIDES[resolution_index];
+                preview_height = height_for(preview_width);
+                renderer.set_resolution(preview_width, preview_height);
+            }
             ImGui::Separator();
 
             if (ImGui::CollapsingHeader("timeline", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -195,8 +211,7 @@ int main(int argc, char** argv)
                 if (ImGui::Button("frame scene")) {
                     ospr::OrbitSpec fitted;
                     fitted.fov_y_degrees = orbit.fov_y_degrees;
-                    ospr::frame_scene(fitted, bounds,
-                        static_cast<float>(PREVIEW_WIDTH) / PREVIEW_HEIGHT);
+                    ospr::frame_scene(fitted, bounds, VIEW_ASPECT);
                     orbit.center = fitted.center;
                     orbit.radius = fitted.radius;
                     follow_script_camera = false;
@@ -301,8 +316,8 @@ int main(int argc, char** argv)
             glTexImage2D(GL_TEXTURE_2D,
                 0,
                 GL_RGBA,
-                PREVIEW_WIDTH,
-                PREVIEW_HEIGHT,
+                preview_width,
+                preview_height,
                 0,
                 GL_RGBA,
                 GL_UNSIGNED_BYTE,

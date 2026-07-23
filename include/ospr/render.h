@@ -42,6 +42,10 @@ public:
     // only when the value actually changed, so an idle UI keeps converging.
     void set_camera(const Camera& camera);
     void set_background(Vec3 top, Vec3 bottom);
+
+    // Rebuilds the framebuffer at a new size without touching the loaded scene,
+    // so the preview can switch resolution without re-reading the volume.
+    void set_resolution(int width, int height);
     void set_opacity(const OpacityCurve& opacity);
     void reset();
     bool accumulate(int samples = 1);
@@ -57,6 +61,8 @@ public:
     int height() const { return height_; }
 
 private:
+    void rebuild_framebuffer();
+
     int width_;
     int height_;
     int samples_per_pixel_;
@@ -65,6 +71,7 @@ private:
     ospray::cpp::Camera camera_;
     ospray::cpp::FrameBuffer framebuffer_;
     std::vector<uint32_t> pixels_;
+    bool denoise_{false};
     Camera current_camera_;
     bool camera_valid_{false};
     int accumulated_{0};

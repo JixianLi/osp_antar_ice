@@ -7,9 +7,9 @@
       "denoise": true,
       "background": {
         "top": [
-          0.0,
-          0.0,
-          0.0
+          1.0,
+          1.0,
+          1.0
         ],
         "bottom": [
           0.47,

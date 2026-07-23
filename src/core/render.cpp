@@ -69,17 +69,22 @@ FrameRenderer::FrameRenderer(
     set_background(
         script.session.renderer.background_top, script.session.renderer.background_bottom);
 
+    denoise_ = script.session.renderer.denoise;
     camera_.setParam("aspect", static_cast<float>(width) / static_cast<float>(height));
     camera_.commit();
+    rebuild_framebuffer();
+}
 
+void FrameRenderer::rebuild_framebuffer()
+{
     // The denoiser wants albedo and normal to tell texture from noise; without
     // them a low-sample preview loses its surface detail along with the grain.
     int channels = OSP_FB_COLOR | OSP_FB_ACCUM;
-    if (script.session.renderer.denoise)
+    if (denoise_)
         channels |= OSP_FB_ALBEDO | OSP_FB_NORMAL;
-    framebuffer_ = ospray::cpp::FrameBuffer(width, height, OSP_FB_SRGBA, channels);
+    framebuffer_ = ospray::cpp::FrameBuffer(width_, height_, OSP_FB_SRGBA, channels);
 
-    if (script.session.renderer.denoise) {
+    if (denoise_) {
         ospray::cpp::ImageOperation denoiser("denoiser");
         if (denoiser.handle() != nullptr) {
             denoiser.commit();
@@ -87,6 +92,19 @@ FrameRenderer::FrameRenderer(
         }
     }
     framebuffer_.commit();
+    accumulated_ = 0;
+}
+
+void FrameRenderer::set_resolution(int width, int height)
+{
+    if (width == width_ && height == height_)
+        return;
+    width_ = width;
+    height_ = height;
+    pixels_.assign(static_cast<std::size_t>(width) * height, 0);
+    camera_.setParam("aspect", static_cast<float>(width) / static_cast<float>(height));
+    camera_.commit();
+    rebuild_framebuffer();
 }
 
 namespace {
