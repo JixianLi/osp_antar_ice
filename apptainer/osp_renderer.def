@@ -27,11 +27,18 @@ From: rockylinux:9
     dnf -y install dnf-plugins-core
     dnf config-manager --set-enabled crb
 
-    # Weak dependencies here are editor support files (emacs-filesystem,
+    # No `git` here either. It hard-depends on openssh, whose scriptlets create
+    # the sshd user and privilege-separation directory and so fail the same way:
+    #   Failed: openssh-9.9p1-7.el9_8.rocky.0.1.x86_64
+    # Nothing in the build needs it -- clone on the host, fetch_ext.sh uses only
+    # curl -- and dropping it takes the transaction from 95 installs to 24 by
+    # also shedding the entire perl stack.
+    #
+    # Weak dependencies are editor support files (emacs-filesystem,
     # vim-filesystem); skipping them trims the image and the scriptlet count.
     dnf -y --setopt=install_weak_deps=False install \
         gcc gcc-c++ make cmake ninja-build \
-        git curl-minimal tar gzip unzip findutils which \
+        curl-minimal tar gzip unzip findutils which \
         libgomp
     dnf -y clean all
     rm -rf /var/cache/dnf

@@ -85,10 +85,24 @@ JSON script keys are the one place short forms are deliberate (`spp`, `fovy`,
   assumed. Never diff PNGs between the local preview and a Lonestar render.
 - **Rocky 9 needs the CRB repo for `ninja-build`.** Without it the whole `dnf`
   transaction fails and nothing installs.
-- **Never put `dnf -y update` in `%post`.** It pulls new `filesystem` and
-  `util-linux` packages whose scriptlets chown and setcap, which fails inside
-  the user namespace of `apptainer build --fakeroot`. The pinned install list
-  touches neither package; verified with a dnf dry run, not assumed.
+- **`apptainer build --fakeroot` fails on any rpm whose scriptlet needs real
+  root.** Two have already bitten: `dnf -y update` pulls `filesystem` and
+  `util-linux` (chown, setcap), and `git` hard-depends on `openssh` (creates the
+  sshd user). Neither is needed -- clone on the host, `fetch_ext.sh` uses only
+  curl. Before adding any package to `%post`, predict the failure instead of
+  discovering it on Lonestar:
+
+  ```bash
+  dnf download --resolve --alldeps --setopt=install_weak_deps=False <pkgs>
+  for f in *.rpm; do
+      rpm -qp --scripts "$f" | grep -qE "useradd|groupadd|setcap|systemd-sysusers|setfacl|mknod" \
+          && rpm -qp --qf '%{NAME}\n' "$f"
+  done
+  ```
+
+  Cross-check any hit against the real transaction (`dnf --assumeno install`) --
+  `--alldeps` also downloads packages already present in the base image, whose
+  scriptlets never run.
 
 ## Common commands
 
