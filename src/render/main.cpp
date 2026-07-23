@@ -62,6 +62,11 @@ Options parse_options(int argc, char** argv)
         } else if (arg == "-h" || arg == "--help") {
             print_usage();
             std::exit(0);
+        } else if (arg.rfind("--osp:", 0) == 0) {
+            // Left alone for ospInit, which parses and strips its own arguments
+            // later. Without this branch they land in the catch-all below and
+            // the run dies on "unexpected argument", which is what made the
+            // documented --osp:num-threads override impossible.
         } else if (options.script_path.empty()) {
             options.script_path = arg;
         } else {
