@@ -35,8 +35,21 @@ class FrameRenderer
 public:
     FrameRenderer(const Script& script, int width, int height, int samples_per_pixel);
 
+    // Batch path: reset, accumulate every sample, return the frame.
     const std::vector<uint32_t>& render(const Camera& camera, const OpacityCurve& opacity);
 
+    // Progressive path for the preview. set_* discard the accumulation buffer
+    // only when the value actually changed, so an idle UI keeps converging.
+    void set_camera(const Camera& camera);
+    void set_opacity(const OpacityCurve& opacity);
+    void reset();
+    bool accumulate(int samples = 1);
+    const std::vector<uint32_t>& pixels();
+
+    int accumulated() const { return accumulated_; }
+    int target_samples() const { return samples_per_pixel_; }
+
+    Scene& scene() { return scene_; }
     const Bounds& bounds() const { return scene_.bounds(); }
 
     int width() const { return width_; }
@@ -51,6 +64,9 @@ private:
     ospray::cpp::Camera camera_;
     ospray::cpp::FrameBuffer framebuffer_;
     std::vector<uint32_t> pixels_;
+    Camera current_camera_;
+    bool camera_valid_{false};
+    int accumulated_{0};
 };
 
 } // namespace ospr

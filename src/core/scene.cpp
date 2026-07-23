@@ -221,7 +221,7 @@ void Scene::add_surface(const SurfaceSpec& spec, float z_scale)
             std::max(bounds_.hi.z, hi.z)};
     }
 
-    surfaces_.push_back({spec, material, model});
+    surfaces_.push_back({spec, material, model, mesh, field->values, colormap});
 }
 
 void Scene::build_world(const Session& session)
@@ -240,6 +240,7 @@ void Scene::build_world(const Session& session)
     }
 
     ospray::cpp::Group group;
+    group_ = group;
     if (!volumes_.empty()) {
         std::vector<ospray::cpp::VolumetricModel> models;
         for (const VolumeEntry& entry : volumes_)
@@ -256,11 +257,63 @@ void Scene::build_world(const Session& session)
 
     ospray::cpp::Instance instance(group);
     instance.commit();
+    instance_ = instance;
 
     world_ = ospray::cpp::World();
     world_.setParam("instance", ospray::cpp::CopiedData(instance));
     if (!lights_.empty())
         world_.setParam("light", ospray::cpp::CopiedData(lights_));
+    world_.commit();
+}
+
+void Scene::set_lights(const std::vector<LightSpec>& specs)
+{
+    lights_.clear();
+    for (const LightSpec& spec : specs) {
+        ospray::cpp::Light light(spec.type);
+        light.setParam("color", spec.color);
+        light.setParam("intensity", spec.intensity);
+        if (spec.type == "distant" || spec.type == "sunSky") {
+            light.setParam("direction", spec.direction);
+            if (spec.type == "distant")
+                light.setParam("angularDiameter", spec.angular_diameter);
+        }
+        light.commit();
+        lights_.push_back(light);
+    }
+    if (lights_.empty())
+        world_.removeParam("light");
+    else
+        world_.setParam("light", ospray::cpp::CopiedData(lights_));
+    world_.commit();
+}
+
+void Scene::set_density_scale(std::size_t index, float density_scale)
+{
+    VolumeEntry& entry = volumes_[index];
+    entry.spec.density_scale = density_scale;
+    entry.model.setParam("densityScale", density_scale);
+    entry.model.commit();
+    world_.commit();
+}
+
+void Scene::set_surface_range(std::size_t index, Range range)
+{
+    SurfaceEntry& entry = surfaces_[index];
+    entry.spec.value_range = range;
+
+    const float span = std::max(range.hi - range.lo, 1e-6f);
+    std::vector<Vec4> colors(entry.field.size());
+    for (std::size_t point = 0; point < entry.field.size(); ++point) {
+        const Vec3 color
+            = sample(entry.colormap.colors, (entry.field[point] - range.lo) / span);
+        colors[point] = {color.x, color.y, color.z, 1.0f};
+    }
+    entry.mesh.setParam("vertex.color", ospray::cpp::CopiedData(colors));
+    entry.mesh.commit();
+    entry.model.commit();
+    group_.commit();
+    instance_.commit();
     world_.commit();
 }
 

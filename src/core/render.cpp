@@ -90,27 +90,72 @@ FrameRenderer::FrameRenderer(
     framebuffer_.commit();
 }
 
-const std::vector<uint32_t>& FrameRenderer::render(
-    const Camera& camera, const OpacityCurve& opacity)
-{
-    scene_.apply_opacity(opacity);
+namespace {
 
+bool same(Vec3 a, Vec3 b)
+{
+    return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+} // namespace
+
+void FrameRenderer::set_camera(const Camera& camera)
+{
+    if (camera_valid_ && same(camera.position, current_camera_.position)
+        && same(camera.target, current_camera_.target)
+        && same(camera.up, current_camera_.up)
+        && camera.fov_y_degrees == current_camera_.fov_y_degrees)
+        return;
+
+    current_camera_ = camera;
+    camera_valid_ = true;
     camera_.setParam("position", camera.position);
     camera_.setParam("direction", normalize(camera.target - camera.position));
     camera_.setParam("up", camera.up);
     camera_.setParam("fovy", camera.fov_y_degrees);
     camera_.commit();
+    reset();
+}
 
+void FrameRenderer::set_opacity(const OpacityCurve& opacity)
+{
+    scene_.apply_opacity(opacity);
+    reset();
+}
+
+void FrameRenderer::reset()
+{
     framebuffer_.resetAccumulation();
-    for (int sample = 0; sample < samples_per_pixel_; ++sample)
-        framebuffer_.renderFrame(renderer_, camera_, scene_.world());
+    accumulated_ = 0;
+}
 
+bool FrameRenderer::accumulate(int samples)
+{
+    for (int sample = 0; sample < samples && accumulated_ < samples_per_pixel_; ++sample) {
+        framebuffer_.renderFrame(renderer_, camera_, scene_.world());
+        ++accumulated_;
+    }
+    return accumulated_ < samples_per_pixel_;
+}
+
+const std::vector<uint32_t>& FrameRenderer::pixels()
+{
     const auto* mapped = static_cast<const uint32_t*>(framebuffer_.map(OSP_FB_COLOR));
     if (mapped == nullptr)
         throw std::runtime_error("failed to map the OSPRay colour buffer");
     pixels_.assign(mapped, mapped + pixels_.size());
     framebuffer_.unmap(const_cast<uint32_t*>(mapped));
     return pixels_;
+}
+
+const std::vector<uint32_t>& FrameRenderer::render(
+    const Camera& camera, const OpacityCurve& opacity)
+{
+    scene_.apply_opacity(opacity);
+    set_camera(camera);
+    reset();
+    accumulate(samples_per_pixel_);
+    return pixels();
 }
 
 } // namespace ospr

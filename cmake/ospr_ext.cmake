@@ -27,3 +27,25 @@ target_include_directories(ospr_pugixml SYSTEM PUBLIC "${OSPR_EXT}/pugixml")
 add_library(ospr_miniz STATIC "${OSPR_EXT}/miniz/miniz.c")
 target_include_directories(ospr_miniz SYSTEM PUBLIC "${OSPR_EXT}/miniz")
 set_target_properties(ospr_miniz PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# Preview-only dependencies. ospr_core must never link these: ospr_render has to
+# build and run on a headless compute node with no display and no GL.
+if(OSPR_BUILD_PREVIEW)
+    set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL        OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${OSPR_EXT}/glfw" "${CMAKE_BINARY_DIR}/ext/glfw" EXCLUDE_FROM_ALL)
+
+    add_library(ospr_imgui STATIC
+        "${OSPR_EXT}/imgui/imgui.cpp"
+        "${OSPR_EXT}/imgui/imgui_draw.cpp"
+        "${OSPR_EXT}/imgui/imgui_tables.cpp"
+        "${OSPR_EXT}/imgui/imgui_widgets.cpp"
+        "${OSPR_EXT}/imgui/backends/imgui_impl_glfw.cpp"
+        "${OSPR_EXT}/imgui/backends/imgui_impl_opengl3.cpp"
+    )
+    target_include_directories(ospr_imgui SYSTEM PUBLIC
+        "${OSPR_EXT}/imgui" "${OSPR_EXT}/imgui/backends")
+    target_link_libraries(ospr_imgui PUBLIC glfw)
+endif()

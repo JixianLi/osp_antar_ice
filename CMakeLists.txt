@@ -15,6 +15,8 @@ endif()
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/lib")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+option(OSPR_BUILD_PREVIEW "Build the interactive preview (needs GLFW and OpenGL)" ON)
+
 include(cmake/ospr_ext.cmake)
 
 # OSPRay dlopens libospray_module_cpu at device-init time, so the loader must be
@@ -23,3 +25,6 @@ set(CMAKE_BUILD_RPATH "${OSPR_OSPRAY_LIB_DIR}")
 
 add_subdirectory(src/core)
 add_subdirectory(src/render)
+if(OSPR_BUILD_PREVIEW)
+    add_subdirectory(src/preview)
+endif()
