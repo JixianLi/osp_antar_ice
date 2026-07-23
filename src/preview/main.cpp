@@ -298,6 +298,21 @@ int main(int argc, char** argv)
                 preview_height = height_for(preview_width);
                 renderer.set_resolution(preview_width, preview_height);
             }
+
+            if (ImGui::CollapsingHeader("quality", ImGuiTreeNodeFlags_DefaultOpen)) {
+                int spp = renderer.target_samples();
+                if (ImGui::SliderInt("spp", &spp, 1, 256))
+                    renderer.set_target_samples(spp);
+                int shadow = renderer.light_samples();
+                if (ImGui::SliderInt("shadow samples", &shadow, 1, 16))
+                    renderer.set_light_samples(shadow);
+                int ao = renderer.ao_samples();
+                if (ImGui::SliderInt("ao samples", &ao, 0, 16))
+                    renderer.set_ao_samples(ao);
+                // shadow samples apply to the path tracer, ao samples to scivis;
+                // the other is inert for the current renderer.
+                ImGui::TextDisabled("(%s)", renderer.renderer_type().c_str());
+            }
             ImGui::Separator();
 
             // Play walks every interpolated frame at 5 fps; scrubbing lands only

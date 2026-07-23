@@ -1,5 +1,6 @@
 #include "ospr/render.h"
 
+#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -59,13 +60,16 @@ FrameRenderer::FrameRenderer(
     , camera_("perspective")
     , pixels_(static_cast<std::size_t>(width) * height)
 {
+    renderer_type_ = script.session.renderer.type;
     // One sample per renderFrame call; the accumulation buffer does the
     // averaging, which lets the preview reuse this class progressively.
     renderer_.setParam("pixelSamples", 1);
-    if (script.session.renderer.type == "scivis")
-        renderer_.setParam("aoSamples", 2);
-    else
+    if (renderer_type_ == "scivis")
+        renderer_.setParam("aoSamples", ao_samples_);
+    else {
         renderer_.setParam("maxPathLength", 8);
+        renderer_.setParam("lightSamples", light_samples_);
+    }
     set_background(
         script.session.renderer.background_top, script.session.renderer.background_bottom);
 
@@ -139,6 +143,32 @@ void FrameRenderer::set_background(Vec3 top, Vec3 bottom)
     // Fallback for anything the backplate does not cover (e.g. regions outside
     // the texture under some wrap modes).
     renderer_.setParam("backgroundColor", Vec4{bottom.x, bottom.y, bottom.z, 1.0f});
+    renderer_.commit();
+    reset();
+}
+
+void FrameRenderer::set_target_samples(int samples)
+{
+    samples_per_pixel_ = std::max(1, samples);
+    reset();
+}
+
+void FrameRenderer::set_ao_samples(int samples)
+{
+    ao_samples_ = std::max(0, samples);
+    if (renderer_type_ != "scivis")
+        return;
+    renderer_.setParam("aoSamples", ao_samples_);
+    renderer_.commit();
+    reset();
+}
+
+void FrameRenderer::set_light_samples(int samples)
+{
+    light_samples_ = std::max(1, samples);
+    if (renderer_type_ != "pathtracer")
+        return;
+    renderer_.setParam("lightSamples", light_samples_);
     renderer_.commit();
     reset();
 }

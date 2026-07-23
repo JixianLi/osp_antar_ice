@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include <ospray/ospray_cpp.h>
@@ -46,6 +47,16 @@ public:
     // Rebuilds the framebuffer at a new size without touching the loaded scene,
     // so the preview can switch resolution without re-reading the volume.
     void set_resolution(int width, int height);
+
+    // Quality knobs. spp is the accumulation target. aoSamples applies to the
+    // scivis renderer, lightSamples (shadow/soft-light quality) to the path
+    // tracer; each setter is a no-op for the other renderer.
+    void set_target_samples(int samples);
+    void set_ao_samples(int samples);
+    void set_light_samples(int samples);
+    int ao_samples() const { return ao_samples_; }
+    int light_samples() const { return light_samples_; }
+    const std::string& renderer_type() const { return renderer_type_; }
     void set_opacity(const OpacityCurve& opacity);
     void reset();
     bool accumulate(int samples = 1);
@@ -72,6 +83,9 @@ private:
     ospray::cpp::FrameBuffer framebuffer_;
     std::vector<uint32_t> pixels_;
     bool denoise_{false};
+    std::string renderer_type_;
+    int ao_samples_{2};
+    int light_samples_{1};
     Camera current_camera_;
     bool camera_valid_{false};
     int accumulated_{0};
