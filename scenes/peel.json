@@ -21,7 +21,7 @@
     "objects": [
       {
         "type": "volume",
-        "path": "../../printing/results/volume_bm5000_s1000_m10000_t0.35_g2000_p50.vti",
+        "path": "../data/volume_bm5000_s1000_m10000_t0.35_g2000_p50.vti",
         "scalar": "layer_id",
         "range": [
           0,
@@ -106,70 +106,7 @@
       "ease": "linear"
     },
     {
-      "azimuth": -8,
-      "elevation": 22,
-      "fov": 35,
-      "radius": 2.4,
-      "opacity": [
-        [
-          0,
-          0
-        ],
-        [
-          1,
-          1
-        ],
-        [
-          5,
-          1
-        ]
-      ],
-      "ease": "linear"
-    },
-    {
-      "azimuth": 112,
-      "elevation": 22,
-      "fov": 35,
-      "radius": 2.4,
-      "opacity": [
-        [
-          0,
-          0
-        ],
-        [
-          1,
-          1
-        ],
-        [
-          5,
-          1
-        ]
-      ],
-      "ease": "linear"
-    },
-    {
-      "azimuth": 232,
-      "elevation": 22,
-      "fov": 35,
-      "radius": 2.4,
-      "opacity": [
-        [
-          0,
-          0
-        ],
-        [
-          1,
-          1
-        ],
-        [
-          5,
-          1
-        ]
-      ],
-      "ease": "linear"
-    },
-    {
-      "azimuth": 232.0,
+      "azimuth": -128,
       "elevation": 22,
       "fov": 35,
       "radius": 2.4,
@@ -194,7 +131,7 @@
       "ease": "smooth"
     },
     {
-      "azimuth": 240.18,
+      "azimuth": -128,
       "elevation": 22,
       "fov": 35,
       "radius": 2.4,
@@ -219,7 +156,7 @@
       "ease": "smooth"
     },
     {
-      "azimuth": 248.36,
+      "azimuth": -128,
       "elevation": 22,
       "fov": 35,
       "radius": 2.4,
@@ -244,7 +181,7 @@
       "ease": "smooth"
     },
     {
-      "azimuth": 256.55,
+      "azimuth": -128,
       "elevation": 22,
       "fov": 35,
       "radius": 2.4,
@@ -269,7 +206,7 @@
       "ease": "smooth"
     },
     {
-      "azimuth": 264.73,
+      "azimuth": -128,
       "elevation": 22,
       "fov": 35,
       "radius": 2.4,
@@ -294,7 +231,7 @@
       "ease": "smooth"
     },
     {
-      "azimuth": 272.91,
+      "azimuth": -128,
       "elevation": 22,
       "fov": 35,
       "radius": 2.4,
@@ -319,7 +256,7 @@
       "ease": "smooth"
     },
     {
-      "azimuth": 281.09,
+      "azimuth": -128,
       "elevation": 22,
       "fov": 35,
       "radius": 2.4,
@@ -344,7 +281,7 @@
       "ease": "smooth"
     },
     {
-      "azimuth": 289.27,
+      "azimuth": -128,
       "elevation": 22,
       "fov": 35,
       "radius": 2.4,
@@ -369,7 +306,7 @@
       "ease": "smooth"
     },
     {
-      "azimuth": 297.45,
+      "azimuth": -128,
       "elevation": 22,
       "fov": 35,
       "radius": 2.4,
@@ -394,7 +331,7 @@
       "ease": "smooth"
     },
     {
-      "azimuth": 305.64,
+      "azimuth": -128,
       "elevation": 22,
       "fov": 35,
       "radius": 2.4,
@@ -419,7 +356,7 @@
       "ease": "smooth"
     },
     {
-      "azimuth": 313.82,
+      "azimuth": -128,
       "elevation": 22,
       "fov": 35,
       "radius": 2.4,
@@ -444,7 +381,7 @@
       "ease": "smooth"
     },
     {
-      "azimuth": 322.0,
+      "azimuth": -128,
       "elevation": 22,
       "fov": 35,
       "radius": 2.4,
@@ -467,106 +404,6 @@
         ]
       ],
       "ease": "smooth"
-    },
-    {
-      "azimuth": 322,
-      "elevation": 22,
-      "fov": 35,
-      "radius": 2.4,
-      "opacity": [
-        [
-          0.0,
-          0.0
-        ],
-        [
-          4.2,
-          0.0
-        ],
-        [
-          4.8,
-          1.0
-        ],
-        [
-          5.0,
-          1.0
-        ]
-      ],
-      "ease": "linear"
-    },
-    {
-      "azimuth": 442,
-      "elevation": 22,
-      "fov": 35,
-      "radius": 2.4,
-      "opacity": [
-        [
-          0.0,
-          0.0
-        ],
-        [
-          4.2,
-          0.0
-        ],
-        [
-          4.8,
-          1.0
-        ],
-        [
-          5.0,
-          1.0
-        ]
-      ],
-      "ease": "linear"
-    },
-    {
-      "azimuth": 562,
-      "elevation": 22,
-      "fov": 35,
-      "radius": 2.4,
-      "opacity": [
-        [
-          0.0,
-          0.0
-        ],
-        [
-          4.2,
-          0.0
-        ],
-        [
-          4.8,
-          1.0
-        ],
-        [
-          5.0,
-          1.0
-        ]
-      ],
-      "ease": "linear"
-    },
-    {
-      "azimuth": 682,
-      "elevation": 22,
-      "fov": 35,
-      "radius": 2.4,
-      "opacity": [
-        [
-          0.0,
-          0.0
-        ],
-        [
-          4.2,
-          0.0
-        ],
-        [
-          4.8,
-          1.0
-        ],
-        [
-          5.0,
-          1.0
-        ]
-      ],
-      "ease": "linear"
     }
   ]
 }

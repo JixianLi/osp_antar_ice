@@ -3,3 +3,4 @@ build/
 lib/
 out/
 imgui.ini
+data/

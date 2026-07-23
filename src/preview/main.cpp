@@ -254,11 +254,11 @@ int main(int argc, char** argv)
         const GLuint texture = make_texture();
 
         const int keyframe_count = static_cast<int>(script.keyframes.size());
-        const int last_frame = std::max(0, ospr::frame_count(script) - 1);
+        // Not const: frames_between is editable and the frame count follows it.
+        int last_frame = std::max(0, ospr::frame_count(script) - 1);
         int keyframe_index = 0;
         bool playing = false;
         int play_frame = 0;
-        float play_accumulator = 0.0f;
         bool follow_script_camera = true;
         bool dirty = true;
         // Held across frames because the fill is applied on release, not on drag.
@@ -317,20 +317,17 @@ int main(int argc, char** argv)
             }
             ImGui::Separator();
 
-            // Play walks every interpolated frame at 5 fps; scrubbing lands only
-            // on keyframes. Stopping snaps to the next keyframe either way.
-            if (playing) {
-                play_accumulator += io.DeltaTime;
-                while (play_accumulator >= 0.2f) {
-                    play_accumulator -= 0.2f;
-                    ++play_frame;
-                    dirty = true;
-                    if (play_frame >= last_frame) {
-                        play_frame = last_frame;
-                        playing = false;
-                        keyframe_index = keyframe_count - 1;
-                        break;
-                    }
+            // Play holds each frame until it has finished accumulating, so every
+            // frame is judged at the quality the final render will have and the
+            // rate is whatever the renderer manages. Scrubbing lands only on
+            // keyframes. Stopping snaps to the next keyframe either way.
+            if (playing && renderer.accumulated() >= renderer.target_samples()) {
+                ++play_frame;
+                dirty = true;
+                if (play_frame >= last_frame) {
+                    play_frame = last_frame;
+                    playing = false;
+                    keyframe_index = keyframe_count - 1;
                 }
             }
             const float u = playing ? ospr::frame_to_param(script, play_frame)
@@ -352,7 +349,6 @@ int main(int argc, char** argv)
                     if (ImGui::Button("play")) {
                         playing = true;
                         play_frame = ospr::keyframe_frame(script, keyframe_index);
-                        play_accumulator = 0.0f;
                     }
                     ImGui::SameLine();
                     if (ImGui::SliderInt(
@@ -463,22 +459,17 @@ int main(int argc, char** argv)
                 }
             }
 
-            if (ImGui::CollapsingHeader("surfaces", ImGuiTreeNodeFlags_DefaultOpen)) {
-                for (std::size_t index = 0; index < renderer.scene().surface_count();
-                     ++index) {
-                    ImGui::PushID(static_cast<int>(2000 + index));
-                    const ospr::SurfaceSpec& spec = renderer.scene().surface_spec(index);
-                    ImGui::TextUnformatted(spec.path.c_str());
-                    float range[2]{spec.value_range.lo, spec.value_range.hi};
-                    if (ImGui::DragFloat2("depth range", range, 10.0f, 0.0f, 5000.0f)) {
-                        renderer.scene().set_surface_range(index, {range[0], range[1]});
-                        renderer.reset();
-                    }
-                    ImGui::PopID();
-                    ImGui::Separator();
-                }
-            }
+            ImGui::End();
 
+            ImGui::SetNextWindowSize(ImVec2(310, 0), ImGuiCond_FirstUseEver);
+            ImGui::Begin("output");
+            // Drives the preview's own timeline only: there is no session save
+            // yet, so this does not reach the script on disk.
+            if (ImGui::SliderInt("frames between", &script.frames_between, 1, 120)) {
+                last_frame = std::max(0, ospr::frame_count(script) - 1);
+                play_frame = std::min(play_frame, last_frame);
+            }
+            ImGui::Text("%d keyframes -> %d frames", keyframe_count, last_frame + 1);
             ImGui::End();
 
             const ospr::Camera camera = (playing || follow_script_camera)
