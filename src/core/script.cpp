@@ -13,7 +13,6 @@ namespace {
 
 using nlohmann::json;
 
-constexpr float DEGREES_TO_RADIANS = 3.14159265358979323846f / 180.0f;
 
 Vec3 read_vec3(const json& node, const std::string& where)
 {

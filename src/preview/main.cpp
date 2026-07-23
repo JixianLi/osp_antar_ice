@@ -281,6 +281,11 @@ int main(int argc, char** argv)
             }
 
             if (ImGui::CollapsingHeader("volume", ImGuiTreeNodeFlags_DefaultOpen)) {
+                float z_scale = renderer.scene().z_scale();
+                if (ImGui::SliderFloat("z scale", &z_scale, 25.0f, 50.0f, "%.1f")) {
+                    renderer.scene().set_z_scale(z_scale);
+                    renderer.reset();
+                }
                 for (std::size_t index = 0; index < renderer.scene().volume_count();
                      ++index) {
                     ImGui::PushID(static_cast<int>(1000 + index));

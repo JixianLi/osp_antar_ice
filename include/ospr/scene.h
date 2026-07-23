@@ -40,6 +40,11 @@ public:
     void set_lights(const std::vector<LightSpec>& lights);
     void set_density_scale(std::size_t index, float density_scale);
     void set_surface_range(std::size_t index, Range range);
+    // Because the scene is normalised on its longest side (x, unaffected by
+    // z_scale), a z_scale change is a uniform scaling of every z about the
+    // origin -- no re-read, no re-normalise, just multiply z by the ratio.
+    void set_z_scale(float z_scale);
+    float z_scale() const { return z_scale_; }
 
     std::size_t volume_count() const { return volumes_.size(); }
     std::size_t surface_count() const { return surfaces_.size(); }
@@ -55,6 +60,11 @@ private:
         VolumeSpec spec;
         ospray::cpp::TransferFunction transfer;
         ospray::cpp::VolumetricModel model;
+        ospray::cpp::Volume volume;
+        // Current normalised grid placement, so set_z_scale can rescale z
+        // without recomputing from the source header.
+        Vec3 grid_origin;
+        Vec3 grid_spacing;
     };
 
     struct SurfaceEntry
@@ -67,6 +77,9 @@ private:
         ospray::cpp::Geometry mesh;
         std::vector<float> field;
         ColorMap colormap;
+        // Retained so a z_scale change can rescale z and re-upload positions
+        // without re-reading the .vts.
+        std::vector<Vec3> positions;
     };
 
     void add_volume(const ImageData& data, const VolumeSpec& spec, float z_scale);
@@ -88,6 +101,7 @@ private:
     Bounds bounds_;
     Vec3 center_;
     float scale_{1.0f};
+    float z_scale_{1.0f};
 };
 
 } // namespace ospr

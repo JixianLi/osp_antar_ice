@@ -181,6 +181,7 @@ Scene::Scene(const Session& session)
     const float longest = std::max(
         {raw.hi.x - raw.lo.x, raw.hi.y - raw.lo.y, raw.hi.z - raw.lo.z});
     scale_ = (initialised && longest > 0.0f) ? 2.0f / longest : 1.0f;
+    z_scale_ = session.z_scale;
     bounds_ = {to_normalized(raw.lo), to_normalized(raw.hi)};
 
     for (std::size_t index = 0; index < session.volumes.size(); ++index)
@@ -235,15 +236,15 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_sc
     // gridOrigin is a point (centre-subtract then scale); gridSpacing is a step
     // vector (scale only). A voxel step in normalised space is the metre step
     // times scale_.
-    volume.setParam("gridOrigin",
-        to_normalized({static_cast<float>(data.origin[0]),
-            static_cast<float>(data.origin[1]),
-            static_cast<float>(data.origin[2] * z_scale)}));
-    volume.setParam("gridSpacing",
-        Vec3{static_cast<float>(data.spacing[0]),
-            static_cast<float>(data.spacing[1]),
-            static_cast<float>(data.spacing[2] * z_scale)}
-            * scale_);
+    const Vec3 grid_origin = to_normalized({static_cast<float>(data.origin[0]),
+        static_cast<float>(data.origin[1]),
+        static_cast<float>(data.origin[2] * z_scale)});
+    const Vec3 grid_spacing = Vec3{static_cast<float>(data.spacing[0]),
+                                 static_cast<float>(data.spacing[1]),
+                                 static_cast<float>(data.spacing[2] * z_scale)}
+        * scale_;
+    volume.setParam("gridOrigin", grid_origin);
+    volume.setParam("gridSpacing", grid_spacing);
     volume.commit();
 
     ospray::cpp::VolumetricModel model(volume);
@@ -251,7 +252,7 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_sc
     model.setParam("densityScale", spec.density_scale);
     model.commit();
 
-    volumes_.push_back({spec, transfer, model});
+    volumes_.push_back({spec, transfer, model, volume, grid_origin, grid_spacing});
 }
 
 void Scene::add_surface(const StructuredGrid& grid, const SurfaceSpec& spec, float z_scale)
@@ -312,7 +313,7 @@ void Scene::add_surface(const StructuredGrid& grid, const SurfaceSpec& spec, flo
     model.setParam("material", material);
     model.commit();
 
-    surfaces_.push_back({spec, material, model, mesh, field->values, colormap});
+    surfaces_.push_back({spec, material, model, mesh, field->values, colormap, positions});
 }
 
 // Regular tetrahedron on alternating corners of the cube, one colour per vertex
@@ -347,7 +348,7 @@ void Scene::add_tetrahedron(const TetrahedronSpec& spec)
 
     SurfaceSpec spec_placeholder;
     spec_placeholder.layer = -1.0f;
-    surfaces_.push_back({spec_placeholder, material, model, mesh, {}, ColorMap{}});
+    surfaces_.push_back({spec_placeholder, material, model, mesh, {}, ColorMap{}, positions});
 }
 
 void Scene::build_world(const Session& session)
@@ -413,6 +414,38 @@ void Scene::set_lights(const std::vector<LightSpec>& specs)
         world_.removeParam("light");
     else
         world_.setParam("light", ospray::cpp::CopiedData(lights_));
+    world_.commit();
+}
+
+void Scene::set_z_scale(float z_scale)
+{
+    if (z_scale == z_scale_ || z_scale_ <= 0.0f)
+        return;
+    const float ratio = z_scale / z_scale_;
+    z_scale_ = z_scale;
+
+    for (VolumeEntry& entry : volumes_) {
+        entry.grid_origin.z *= ratio;
+        entry.grid_spacing.z *= ratio;
+        entry.volume.setParam("gridOrigin", entry.grid_origin);
+        entry.volume.setParam("gridSpacing", entry.grid_spacing);
+        entry.volume.commit();
+        entry.model.commit();
+    }
+
+    for (SurfaceEntry& entry : surfaces_) {
+        for (Vec3& point : entry.positions)
+            point.z *= ratio;
+        entry.mesh.setParam("vertex.position", ospray::cpp::CopiedData(entry.positions));
+        entry.mesh.commit();
+        entry.model.commit();
+    }
+
+    bounds_.lo.z *= ratio;
+    bounds_.hi.z *= ratio;
+
+    group_.commit();
+    instance_.commit();
     world_.commit();
 }
 
