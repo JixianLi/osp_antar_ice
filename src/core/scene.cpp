@@ -13,30 +13,6 @@ namespace {
 
 constexpr int LUT_SIZE = 256;
 
-// Piecewise-linear age(layer_id) from the script's knots. Below the first knot
-// the ice is above L1; above the last it is the undated Basal/Bed column, which
-// the caller paints flat rather than extrapolating an age nobody measured.
-float age_at(const std::vector<AgeKnot>& knots, float layer, bool& dated)
-{
-    dated = true;
-    if (layer <= knots.front().layer)
-        return knots.front().age;
-    if (layer >= knots.back().layer) {
-        dated = layer <= knots.back().layer;
-        return knots.back().age;
-    }
-    for (std::size_t index = 0; index + 1 < knots.size(); ++index) {
-        const AgeKnot& from = knots[index];
-        const AgeKnot& to = knots[index + 1];
-        if (layer <= to.layer) {
-            const float span = to.layer - from.layer;
-            const float t = span > 0.0f ? (layer - from.layer) / span : 0.0f;
-            return lerp(from.age, to.age, t);
-        }
-    }
-    return knots.back().age;
-}
-
 Vec3 sample(const std::vector<Vec3>& table, float t)
 {
     const float position = std::clamp(t, 0.0f, 1.0f) * (table.size() - 1);
@@ -197,23 +173,20 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_sc
 {
     const DataArray* scalar = data.find(spec.scalar);
 
-    const ColorMap colormap
-        = load_colormap(spec.colormap_path, "", LUT_SIZE, spec.trim);
+    const ColorMap ice = load_colormap(spec.ice_colormap_path, "", LUT_SIZE, spec.ice_trim);
+    const ColorMap rock = load_colormap(spec.rock_colormap_path, "", LUT_SIZE, spec.rock_trim);
 
-    // Colour is baked once: entry i corresponds to layer_id lerped across the
-    // value range, mapped through age(layer_id) into the age colour scale.
-    const float age_lo = spec.age_knots.front().age;
-    const float age_hi = spec.age_knots.back().age;
+    // Colour is by layer_id directly: entry i is the layer_id it will be sampled
+    // at, mapped through the ice ramp over [1, split] and the rock ramp over
+    // [split, 5]. No age conversion.
     std::vector<Vec3> colors(LUT_SIZE);
     for (int index = 0; index < LUT_SIZE; ++index) {
         const float layer = lerp(spec.value_range.lo,
             spec.value_range.hi,
             static_cast<float>(index) / (LUT_SIZE - 1));
-        bool dated = true;
-        const float age = age_at(spec.age_knots, layer, dated);
-        colors[index] = dated
-            ? sample(colormap.colors, (age - age_lo) / std::max(age_hi - age_lo, 1e-6f))
-            : spec.undated_color;
+        colors[index] = layer <= spec.split
+            ? sample(ice.colors, (layer - 1.0f) / std::max(spec.split - 1.0f, 1e-6f))
+            : sample(rock.colors, (layer - spec.split) / std::max(5.0f - spec.split, 1e-6f));
     }
 
     // The transfer function and the volumetric model must be committed before
@@ -224,7 +197,7 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_sc
     ospray::cpp::TransferFunction transfer("piecewiseLinear");
     transfer.setParam("color", ospray::cpp::CopiedData(colors));
     transfer.setParam("opacity", ospray::cpp::CopiedData(std::vector<float>(LUT_SIZE, 0.0f)));
-    transfer.setParam("value", Vec2{spec.value_range.lo, spec.value_range.hi});
+    transfer.setParam("value", Box1f{spec.value_range.lo, spec.value_range.hi});
     transfer.commit();
 
     ospray::cpp::Volume volume("structuredRegular");

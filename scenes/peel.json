@@ -29,30 +29,13 @@
         ],
         "density_scale": 8.0,
         "color": {
-          "map": "c16.json",
-          "trim": [
+          "ice_map": "c16.json",
+          "ice_trim": [
             0.0,
             0.85
           ],
-          "age_knots": [
-            [
-              1,
-              4.89
-            ],
-            [
-              2,
-              40.77
-            ],
-            [
-              3,
-              68.44
-            ]
-          ],
-          "undated": [
-            0.32,
-            0.28,
-            0.26
-          ]
+          "rock_map": "terrain_bed.json",
+          "split": 3.0
         }
       }
     ],

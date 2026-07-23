@@ -27,6 +27,14 @@ struct Vec2
     float x{0.0f}, y{0.0f};
 };
 
+// A 1D range (rkcommon box1f). The transfer function's "value" parameter is
+// this type, NOT a vec2f: passing the wrong type makes OSPRay silently keep the
+// default [0, 1] range, so every scalar outside it clamps to a LUT end.
+struct Box1f
+{
+    float lower{0.0f}, upper{1.0f};
+};
+
 // OSPRay infers a 2D Data array's shape (a texture) from a vec2ul.
 struct Vec2ul
 {
@@ -172,6 +180,7 @@ OSPTYPEFOR_SPECIALIZATION(ospr::Vec3, OSP_VEC3F);
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec4, OSP_VEC4F);
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec3ui, OSP_VEC3UI);
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec2, OSP_VEC2F);
+OSPTYPEFOR_SPECIALIZATION(ospr::Box1f, OSP_BOX1F);
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec2ul, OSP_VEC2UL);
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec3ul, OSP_VEC3UL);
 } // namespace ospray

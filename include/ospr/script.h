@@ -15,27 +15,18 @@ struct Range
     float hi{1.0f};
 };
 
-// layer_id -> age_ka. volume.py interpolates both fields over the same vertical
-// parameter, so age is piecewise linear in layer_id: measured spread within a
-// layer_id bin is 0.36 ka against a 68 ka range. That is what lets one scalar
-// field drive age colour and layer opacity at once.
-struct AgeKnot
-{
-    float layer{0.0f};
-    float age{0.0f};
-};
-
 struct VolumeSpec
 {
     std::string path;
     std::string scalar{"layer_id"};
     Range value_range{0.0f, 5.0f};
-    std::string colormap_path;
-    ColorMapTrim trim;
-    std::vector<AgeKnot> age_knots;
-    // Basal and Bed are undated: age_ka is NaN above the last knot, so that
-    // part of the LUT takes a flat colour instead of an extrapolated age.
-    Vec3 undated_color{0.30f, 0.28f, 0.30f};
+    // Colour is by layer_id directly. The ice colourmap covers [1, split]
+    // (dated ice, L1..L7), the rock colourmap covers [split, 5] (Basal, Bed).
+    std::string ice_colormap_path;
+    ColorMapTrim ice_trim;
+    std::string rock_colormap_path;
+    ColorMapTrim rock_trim;
+    float split{3.0f};
     float density_scale{1.0f};
 };
 

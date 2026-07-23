@@ -89,26 +89,16 @@ VolumeSpec read_volume(
     if (!node.contains("color"))
         throw std::runtime_error(where + ": missing 'color'");
     const json& color = node.at("color");
-    if (!color.contains("map"))
-        throw std::runtime_error(where + ".color: missing 'map'");
-    volume.colormap_path = resolve(base, color.at("map").get<std::string>());
-    if (color.contains("trim"))
-        volume.trim = read_trim(color.at("trim"), where + ".color.trim");
-    if (color.contains("undated"))
-        volume.undated_color = read_vec3(color.at("undated"), where + ".color.undated");
-
-    if (!color.contains("age_knots"))
-        throw std::runtime_error(where + ".color: missing 'age_knots'");
-    for (const json& knot : color.at("age_knots")) {
-        if (!knot.is_array() || knot.size() != 2)
-            throw std::runtime_error(where + ".color.age_knots: expected [layer, age] pairs");
-        volume.age_knots.push_back({knot[0].get<float>(), knot[1].get<float>()});
-    }
-    if (volume.age_knots.size() < 2)
-        throw std::runtime_error(where + ".color.age_knots: need at least 2 knots");
-    std::stable_sort(volume.age_knots.begin(),
-        volume.age_knots.end(),
-        [](const AgeKnot& a, const AgeKnot& b) { return a.layer < b.layer; });
+    if (!color.contains("ice_map") || !color.contains("rock_map"))
+        throw std::runtime_error(where + ".color: needs 'ice_map' and 'rock_map'");
+    volume.ice_colormap_path = resolve(base, color.at("ice_map").get<std::string>());
+    volume.rock_colormap_path = resolve(base, color.at("rock_map").get<std::string>());
+    if (color.contains("ice_trim"))
+        volume.ice_trim = read_trim(color.at("ice_trim"), where + ".color.ice_trim");
+    if (color.contains("rock_trim"))
+        volume.rock_trim = read_trim(color.at("rock_trim"), where + ".color.rock_trim");
+    if (color.contains("split"))
+        volume.split = color.at("split").get<float>();
     return volume;
 }
 
