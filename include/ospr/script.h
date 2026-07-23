@@ -52,6 +52,13 @@ struct SurfaceSpec
     float roughness{0.7f};
 };
 
+// Built-in scene with no data files, so the smoke test that proves a build
+// works still runs inside the render container and on a compute node.
+struct TetrahedronSpec
+{
+    float scale{1.0f};
+};
+
 struct LightSpec
 {
     std::string type{"distant"};
@@ -98,6 +105,7 @@ struct Session
     RendererSpec renderer;
     std::vector<VolumeSpec> volumes;
     std::vector<SurfaceSpec> surfaces;
+    std::vector<TetrahedronSpec> tetrahedra;
     std::vector<LightSpec> lights;
 };
 

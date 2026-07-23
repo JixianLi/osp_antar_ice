@@ -69,6 +69,7 @@ private:
 
     void add_volume(const VolumeSpec& spec, float z_scale);
     void add_surface(const SurfaceSpec& spec, float z_scale);
+    void add_tetrahedron(const TetrahedronSpec& spec);
     void build_world(const Session& session);
 
     std::vector<VolumeEntry> volumes_;

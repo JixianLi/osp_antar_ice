@@ -219,6 +219,12 @@ Script load_script(const std::string& path)
                 script.session.volumes.push_back(read_volume(object, base, where));
             else if (type == "surface")
                 script.session.surfaces.push_back(read_surface(object, base, where));
+            else if (type == "tetrahedron") {
+                TetrahedronSpec tetrahedron;
+                if (object.contains("scale"))
+                    tetrahedron.scale = object.at("scale").get<float>();
+                script.session.tetrahedra.push_back(tetrahedron);
+            }
             else
                 throw std::runtime_error(where + ": unknown object type '" + type + "'");
         }

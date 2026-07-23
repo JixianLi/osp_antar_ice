@@ -1,24 +1,17 @@
 {
-  "version": 1,
-  "scene": { "type": "tetrahedron" },
-  "output": {
-    "dir": "out/tetra",
-    "width": 800,
-    "height": 600,
-    "spp": 32,
-    "background": [0.05, 0.06, 0.09]
+  "session": {
+    "renderer": { "type": "scivis", "spp": 32, "denoise": false, "background": [0.05, 0.06, 0.09] },
+    "objects": [ { "type": "tetrahedron", "scale": 1.0 } ],
+    "lights": [
+      { "type": "ambient", "intensity": 0.4, "visible": false },
+      { "type": "distant", "direction": [-0.4, -0.7, -0.6], "intensity": 2.2 }
+    ]
   },
+  "output": { "dir": "../out/tetra", "width": 800, "height": 450 },
   "timeline": { "fps": 30, "duration": 4.0 },
+  "camera": { "mode": "orbit", "elevation": 20, "revolutions": 1, "fovy": 40, "up": [0, 0, 1] },
   "keyframes": [
-    { "t": 0.0, "ease": "smooth",
-      "camera": { "position": [5.0, 0.0, 2.0], "target": [0, 0, 0], "up": [0, 0, 1], "fovy": 40 } },
-    { "t": 1.0, "ease": "smooth",
-      "camera": { "position": [0.0, 5.0, 2.0], "target": [0, 0, 0], "up": [0, 0, 1], "fovy": 40 } },
-    { "t": 2.0, "ease": "smooth",
-      "camera": { "position": [-5.0, 0.0, 2.0], "target": [0, 0, 0], "up": [0, 0, 1], "fovy": 55 } },
-    { "t": 3.0, "ease": "smooth",
-      "camera": { "position": [0.0, -5.0, 2.0], "target": [0, 0, 0], "up": [0, 0, 1], "fovy": 40 } },
-    { "t": 4.0, "ease": "smooth",
-      "camera": { "position": [5.0, 0.0, 2.0], "target": [0, 0, 0], "up": [0, 0, 1], "fovy": 40 } }
+    { "t": 0.0, "opacity": [[0, 1], [5, 1]] },
+    { "t": 4.0, "opacity": [[0, 1], [5, 1]] }
   ]
 }

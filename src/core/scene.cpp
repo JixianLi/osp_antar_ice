@@ -74,6 +74,8 @@ Scene::Scene(const Session& session)
         add_volume(volume, session.z_scale);
     for (const SurfaceSpec& surface : session.surfaces)
         add_surface(surface, session.z_scale);
+    for (const TetrahedronSpec& tetrahedron : session.tetrahedra)
+        add_tetrahedron(tetrahedron);
     build_world(session);
 }
 
@@ -238,6 +240,46 @@ void Scene::add_surface(const SurfaceSpec& spec, float z_scale)
     }
 
     surfaces_.push_back({spec, material, model, mesh, field->values, colormap});
+}
+
+// Regular tetrahedron on alternating corners of the cube, one colour per vertex
+// so the result shows barycentric interpolation. Windings are counter-clockwise
+// seen from outside.
+void Scene::add_tetrahedron(const TetrahedronSpec& spec)
+{
+    const float s = spec.scale;
+    const std::vector<Vec3> positions{
+        {s, s, s}, {s, -s, -s}, {-s, s, -s}, {-s, -s, s}};
+    const std::vector<Vec4> colors{{0.90f, 0.15f, 0.15f, 1.0f},
+        {0.15f, 0.80f, 0.25f, 1.0f},
+        {0.20f, 0.35f, 0.95f, 1.0f},
+        {0.95f, 0.85f, 0.15f, 1.0f}};
+    const std::vector<Vec3ui> indices{{0, 1, 2}, {0, 2, 3}, {0, 3, 1}, {1, 3, 2}};
+
+    ospray::cpp::Geometry mesh("mesh");
+    mesh.setParam("vertex.position", ospray::cpp::CopiedData(positions));
+    mesh.setParam("vertex.color", ospray::cpp::CopiedData(colors));
+    mesh.setParam("index", ospray::cpp::CopiedData(indices));
+    mesh.commit();
+
+    ospray::cpp::Material material("obj");
+    material.setParam("kd", Vec3{1.0f, 1.0f, 1.0f});
+    material.commit();
+
+    ospray::cpp::GeometricModel model(mesh);
+    model.setParam("material", material);
+    model.commit();
+
+    const Vec3 lo{-s, -s, -s};
+    const Vec3 hi{s, s, s};
+    if (!bounds_initialised_) {
+        bounds_ = {lo, hi};
+        bounds_initialised_ = true;
+    }
+
+    SurfaceSpec spec_placeholder;
+    spec_placeholder.layer = -1.0f;
+    surfaces_.push_back({spec_placeholder, material, model, mesh, {}, ColorMap{}});
 }
 
 void Scene::build_world(const Session& session)

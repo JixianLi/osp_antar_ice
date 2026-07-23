@@ -30,6 +30,27 @@ set_target_properties(ospr_miniz PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Preview-only dependencies. ospr_core must never link these: ospr_render has to
 # build and run on a headless compute node with no display and no GL.
+#
+# The render container has no GL or X11 development packages and no reason to
+# carry any, so probe for them and drop the preview rather than failing the
+# whole configure. A plain `cmake` then works on both a workstation and a
+# compute node without anyone having to remember a flag.
+if(OSPR_BUILD_PREVIEW)
+    find_package(OpenGL QUIET)
+    set(OSPR_PREVIEW_SUPPORTED ${OPENGL_FOUND})
+    if(UNIX AND NOT APPLE)
+        find_package(X11 QUIET)
+        if(NOT X11_FOUND)
+            set(OSPR_PREVIEW_SUPPORTED FALSE)
+        endif()
+    endif()
+    if(NOT OSPR_PREVIEW_SUPPORTED)
+        message(STATUS
+            "OpenGL/X11 not available -- skipping ospr_preview. ospr_render is unaffected.")
+        set(OSPR_BUILD_PREVIEW OFF CACHE BOOL "" FORCE)
+    endif()
+endif()
+
 if(OSPR_BUILD_PREVIEW)
     set(GLFW_BUILD_DOCS     OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
