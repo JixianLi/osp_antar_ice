@@ -224,7 +224,8 @@ int main(int argc, char** argv)
                   << " s\n";
 
         const ospr::Bounds& bounds = frame_renderer.bounds();
-        ospr::frame_scene(script.orbit, bounds);
+        ospr::frame_scene(script.orbit, bounds,
+            static_cast<float>(script.output.width) / script.output.height);
         std::cout << "scene bounds  " << bounds.lo.x << " .. " << bounds.hi.x << "   "
                   << bounds.lo.y << " .. " << bounds.hi.y << "   " << bounds.lo.z << " .. "
                   << bounds.hi.z << "\n  centre " << bounds.center().x << ", "

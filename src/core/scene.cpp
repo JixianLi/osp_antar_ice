@@ -52,20 +52,54 @@ bool finite(Vec3 point)
 
 } // namespace
 
-void frame_scene(OrbitSpec& orbit, const Bounds& bounds)
+void frame_scene(OrbitSpec& orbit, const Bounds& bounds, float aspect)
 {
     if (!orbit.has_center)
         orbit.center = bounds.center();
-    if (!orbit.has_radius) {
-        // Distance at which a sphere of radius r subtends the vertical field of
-        // view: d = r / sin(fov/2). The extra margin keeps the silhouette off
-        // the frame edge.
-        constexpr float DEGREES_TO_RADIANS = 3.14159265358979323846f / 180.0f;
-        const float sphere = bounds.diagonal() * 0.5f;
-        const float half_fov
-            = std::max(orbit.fov_y_degrees * 0.5f * DEGREES_TO_RADIANS, 1e-3f);
-        orbit.radius = 1.1f * sphere / std::sin(half_fov);
+    if (orbit.has_radius)
+        return;
+
+    constexpr float DEGREES_TO_RADIANS = 3.14159265358979323846f / 180.0f;
+    const float tan_y = std::tan(
+        std::max(orbit.fov_y_degrees * 0.5f * DEGREES_TO_RADIANS, 1e-3f));
+    const float tan_x = tan_y * aspect;
+
+    const Vec3 c = orbit.center;
+    const Vec3 corner[8] = {{bounds.lo.x, bounds.lo.y, bounds.lo.z},
+        {bounds.hi.x, bounds.lo.y, bounds.lo.z},
+        {bounds.lo.x, bounds.hi.y, bounds.lo.z},
+        {bounds.hi.x, bounds.hi.y, bounds.lo.z},
+        {bounds.lo.x, bounds.lo.y, bounds.hi.z},
+        {bounds.hi.x, bounds.lo.y, bounds.hi.z},
+        {bounds.lo.x, bounds.hi.y, bounds.hi.z},
+        {bounds.hi.x, bounds.hi.y, bounds.hi.z}};
+
+    const float elevation = orbit.elevation_degrees * DEGREES_TO_RADIANS;
+    float required = 0.0f;
+
+    // The slab's silhouette changes as it turns, so sweep the orbit and keep the
+    // radius that contains the widest view; a fixed orbit must fit its worst case.
+    for (int step = 0; step < 72; ++step) {
+        const float azimuth = static_cast<float>(step) * 5.0f * DEGREES_TO_RADIANS;
+        const Vec3 direction{std::cos(elevation) * std::cos(azimuth),
+            std::cos(elevation) * std::sin(azimuth),
+            std::sin(elevation)};
+        const Vec3 forward = direction * -1.0f;
+        Vec3 right = cross(forward, orbit.up);
+        if (length(right) < 1e-6f)
+            right = {1.0f, 0.0f, 0.0f};
+        right = normalize(right);
+        const Vec3 up = normalize(cross(right, forward));
+
+        for (const Vec3& point : corner) {
+            const Vec3 rel = point - c;
+            const float horizontal = std::abs(dot(rel, right));
+            const float vertical = std::abs(dot(rel, up));
+            required = std::max(required,
+                std::max(horizontal / tan_x, vertical / tan_y));
+        }
     }
+    orbit.radius = 1.15f * required;
 }
 
 Scene::Scene(const Session& session)

@@ -18,10 +18,11 @@ struct Bounds
     float diagonal() const { return length(hi - lo); }
 };
 
-// Points the orbit at the scene and pulls the camera back far enough that the
-// bounding sphere fits the vertical field of view. Only fills in what the
-// script left unspecified.
-void frame_scene(OrbitSpec& orbit, const Bounds& bounds);
+// Points the orbit at the scene and pulls the camera back just far enough that
+// the projected bounding box fits the frame at every azimuth. Fitting the
+// bounding sphere instead wastes most of the frame on a flat slab seen at an
+// angle. Only fills in what the script left unspecified. aspect is width/height.
+void frame_scene(OrbitSpec& orbit, const Bounds& bounds, float aspect);
 
 // Loads every object in the session once, then re-applies the peel each frame.
 // The colour LUT is baked at construction; only opacity changes with time, so a

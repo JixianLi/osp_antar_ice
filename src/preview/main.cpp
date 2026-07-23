@@ -129,7 +129,8 @@ int main(int argc, char** argv)
         ospr::FrameRenderer renderer(
             script, PREVIEW_WIDTH, PREVIEW_HEIGHT, script.session.renderer.samples_per_pixel);
         const ospr::Bounds& bounds = renderer.bounds();
-        ospr::frame_scene(script.orbit, bounds);
+        ospr::frame_scene(script.orbit, bounds,
+            static_cast<float>(PREVIEW_WIDTH) / PREVIEW_HEIGHT);
         std::cout << "ready\n" << std::flush;
 
         OrbitState orbit;
@@ -190,7 +191,8 @@ int main(int argc, char** argv)
                 if (ImGui::Button("frame scene")) {
                     ospr::OrbitSpec fitted;
                     fitted.fov_y_degrees = orbit.fov_y_degrees;
-                    ospr::frame_scene(fitted, bounds);
+                    ospr::frame_scene(fitted, bounds,
+                        static_cast<float>(PREVIEW_WIDTH) / PREVIEW_HEIGHT);
                     orbit.center = fitted.center;
                     orbit.radius = fitted.radius;
                     follow_script_camera = false;
