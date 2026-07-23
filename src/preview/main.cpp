@@ -100,6 +100,90 @@ void draw_render(GLuint texture, float view_width, float view_height)
         ImVec2(1.0f, 0.0f));
 }
 
+// Draggable opacity-vs-layer_id editor. x is layer_id in [0, 5], y is opacity in
+// [0, 1]. Left-drag a point to move it, double-click empty space to add one,
+// right-click a point to delete it. Returns true when the curve changed.
+bool opacity_editor(const char* id, ospr::OpacityCurve& curve)
+{
+    constexpr float LAYER_MAX = 5.0f;
+    const ImVec2 size(320.0f, 150.0f);
+    ImGui::PushID(id);
+    ImGui::InvisibleButton("canvas", size);
+    const ImVec2 p0 = ImGui::GetItemRectMin();
+    const ImVec2 p1 = ImGui::GetItemRectMax();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(p0, p1, IM_COL32(18, 18, 24, 255));
+    draw->AddRect(p0, p1, IM_COL32(70, 70, 85, 255));
+
+    const auto to_x = [&](float layer) { return p0.x + (layer / LAYER_MAX) * (p1.x - p0.x); };
+    const auto to_y = [&](float opacity) { return p1.y - opacity * (p1.y - p0.y); };
+    const auto from = [&](ImVec2 pixel) {
+        return ospr::OpacityPoint{
+            std::clamp((pixel.x - p0.x) / (p1.x - p0.x) * LAYER_MAX, 0.0f, LAYER_MAX),
+            std::clamp((p1.y - pixel.y) / (p1.y - p0.y), 0.0f, 1.0f)};
+    };
+
+    for (int layer = 1; layer < 5; ++layer)
+        draw->AddLine(ImVec2(to_x(static_cast<float>(layer)), p0.y),
+            ImVec2(to_x(static_cast<float>(layer)), p1.y),
+            IM_COL32(45, 45, 55, 255));
+
+    ImVec2 previous;
+    for (int step = 0; step <= 64; ++step) {
+        const float layer = LAYER_MAX * step / 64.0f;
+        const ImVec2 point(to_x(layer), to_y(curve.at(layer)));
+        if (step > 0)
+            draw->AddLine(previous, point, IM_COL32(120, 180, 255, 255), 2.0f);
+        previous = point;
+    }
+
+    bool changed = false;
+    static int drag = -1;
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+
+    int hovered = -1;
+    for (std::size_t index = 0; index < curve.points.size(); ++index) {
+        const ImVec2 centre(to_x(curve.points[index].layer), to_y(curve.points[index].opacity));
+        const float dx = mouse.x - centre.x;
+        const float dy = mouse.y - centre.y;
+        const bool near = dx * dx + dy * dy < 64.0f;
+        if (near)
+            hovered = static_cast<int>(index);
+        draw->AddCircleFilled(centre, near ? 6.0f : 4.0f,
+            near ? IM_COL32(255, 230, 140, 255) : IM_COL32(255, 200, 80, 255));
+    }
+
+    if (ImGui::IsItemActive() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        drag = hovered;
+    if (drag >= 0 && ImGui::IsMouseDown(ImGuiMouseButton_Left)
+        && drag < static_cast<int>(curve.points.size())) {
+        curve.points[drag] = from(mouse);
+        changed = true;
+    }
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        drag = -1;
+
+    if (hovered >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Right)
+        && curve.points.size() > 2) {
+        curve.points.erase(curve.points.begin() + hovered);
+        changed = true;
+    }
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        curve.points.push_back(from(mouse));
+        changed = true;
+    }
+
+    if (changed) {
+        std::sort(curve.points.begin(),
+            curve.points.end(),
+            [](const ospr::OpacityPoint& a, const ospr::OpacityPoint& b) {
+                return a.layer < b.layer;
+            });
+    }
+    ImGui::PopID();
+    return changed;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -169,9 +253,13 @@ int main(int argc, char** argv)
         ospr::Vec3 background_bottom = script.session.renderer.background_bottom;
         const GLuint texture = make_texture();
 
+        const int keyframe_count = static_cast<int>(script.keyframes.size());
         const int last_frame = std::max(0, ospr::frame_count(script) - 1);
-        int frame_index = 0;
-        bool follow_script_camera = false;
+        int keyframe_index = 0;
+        bool playing = false;
+        int play_frame = 0;
+        float play_accumulator = 0.0f;
+        bool follow_script_camera = true;
         bool dirty = true;
 
         while (!glfwWindowShouldClose(window)) {
@@ -212,12 +300,56 @@ int main(int argc, char** argv)
             }
             ImGui::Separator();
 
-            if (ImGui::CollapsingHeader("timeline", ImGuiTreeNodeFlags_DefaultOpen)) {
-                if (ImGui::SliderInt("frame", &frame_index, 0, last_frame))
+            // Play walks every interpolated frame at 5 fps; scrubbing lands only
+            // on keyframes. Stopping snaps to the next keyframe either way.
+            if (playing) {
+                play_accumulator += io.DeltaTime;
+                while (play_accumulator >= 0.2f) {
+                    play_accumulator -= 0.2f;
+                    ++play_frame;
                     dirty = true;
-                ImGui::SameLine();
-                ImGui::Text("u=%.2f", ospr::frame_to_param(script, frame_index));
+                    if (play_frame >= last_frame) {
+                        play_frame = last_frame;
+                        playing = false;
+                        keyframe_index = keyframe_count - 1;
+                        break;
+                    }
+                }
+            }
+            const float u = playing ? ospr::frame_to_param(script, play_frame)
+                                    : static_cast<float>(keyframe_index);
+
+            if (ImGui::CollapsingHeader("timeline", ImGuiTreeNodeFlags_DefaultOpen)) {
+                if (playing) {
+                    if (ImGui::Button("stop")) {
+                        playing = false;
+                        keyframe_index = std::clamp(
+                            static_cast<int>(std::ceil(ospr::frame_to_param(script, play_frame))),
+                            0,
+                            keyframe_count - 1);
+                        dirty = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("playing  frame %d / %d  u=%.2f", play_frame, last_frame, u);
+                } else {
+                    if (ImGui::Button("play")) {
+                        playing = true;
+                        play_frame = ospr::keyframe_frame(script, keyframe_index);
+                        play_accumulator = 0.0f;
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::SliderInt(
+                            "keyframe", &keyframe_index, 0, keyframe_count - 1))
+                        dirty = true;
+                }
                 ImGui::Checkbox("camera follows script", &follow_script_camera);
+            }
+
+            if (!playing
+                && ImGui::CollapsingHeader("transfer function", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::Text("opacity at keyframe %d", keyframe_index);
+                if (opacity_editor("opacity", script.keyframes[keyframe_index].opacity))
+                    dirty = true;
             }
 
             if (ImGui::CollapsingHeader("camera", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -319,9 +451,9 @@ int main(int argc, char** argv)
 
             ImGui::End();
 
-            const float u = ospr::frame_to_param(script, frame_index);
-            const ospr::Camera camera
-                = follow_script_camera ? ospr::camera_for(script, u) : orbit.camera();
+            const ospr::Camera camera = (playing || follow_script_camera)
+                ? ospr::camera_for(script, u)
+                : orbit.camera();
             renderer.set_camera(camera);
             if (dirty) {
                 renderer.set_opacity(ospr::opacity_at(script.keyframes, u));

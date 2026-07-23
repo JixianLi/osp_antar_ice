@@ -325,6 +325,16 @@ float frame_to_param(const Script& script, int frame_index)
     return static_cast<float>(script.keyframes.size() - 1);
 }
 
+int keyframe_frame(const Script& script, int keyframe_index)
+{
+    int offset = 0;
+    const int clamped = std::clamp(
+        keyframe_index, 0, static_cast<int>(script.keyframes.size()) - 1);
+    for (int gap = 0; gap < clamped; ++gap)
+        offset += frames_in_gap(script, static_cast<std::size_t>(gap)) + 1;
+    return offset;
+}
+
 Camera camera_for(const Script& script, float u)
 {
     return camera_at(script.keyframes, u, Vec3{0.0f, 0.0f, 0.0f}, script.up);

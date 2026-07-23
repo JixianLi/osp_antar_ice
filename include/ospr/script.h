@@ -136,6 +136,9 @@ Script load_script(const std::string& path);
 int frame_count(const Script& script);
 float frame_to_param(const Script& script, int frame_index);
 
+// The output frame index that lands exactly on keyframe k.
+int keyframe_frame(const Script& script, int keyframe_index);
+
 // The interpolated camera at keyframe parameter u. The scene is normalised
 // about the origin, so the orbit target is (0, 0, 0).
 Camera camera_for(const Script& script, float u);
