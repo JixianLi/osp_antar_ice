@@ -2,6 +2,7 @@ add_library(ospr_core STATIC
     image.cpp
     keyframe.cpp
     render.cpp
+    opacity_curve.cpp
     scene.cpp
     script.cpp
     colormap.cpp

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <exception>
 #include <filesystem>
@@ -176,6 +177,9 @@ std::string frame_path(const std::filesystem::path& directory, int frame_index)
 
 int main(int argc, char** argv)
 {
+    // Progress must be visible when stdout is a file, not just a terminal;
+    // a long render otherwise looks identical to a hung one.
+    std::cout << std::unitbuf;
     try {
         const Options options = parse_options(argc, argv);
 
@@ -206,10 +210,24 @@ int main(int argc, char** argv)
         int ospray_argc = argc;
         const ospr::Device device(ospray_argc, const_cast<const char**>(argv));
 
+        const auto load_start = std::chrono::steady_clock::now();
         ospr::FrameRenderer frame_renderer(script,
             script.output.width,
             script.output.height,
-            script.output.samples_per_pixel);
+            script.session.renderer.samples_per_pixel);
+
+        std::cout << "loaded scene in "
+                  << std::chrono::duration<double>(
+                         std::chrono::steady_clock::now() - load_start)
+                         .count()
+                  << " s\n";
+
+        const ospr::Bounds& bounds = frame_renderer.bounds();
+        std::cout << "scene bounds  " << bounds.lo.x << " .. " << bounds.hi.x << "   "
+                  << bounds.lo.y << " .. " << bounds.hi.y << "   " << bounds.lo.z << " .. "
+                  << bounds.hi.z << "\n  centre " << bounds.center().x << ", "
+                  << bounds.center().y << ", " << bounds.center().z << "   diagonal "
+                  << bounds.diagonal() << "\n";
 
         const int total = ospr::frame_count(script);
         const int first = options.single_frame >= 0 ? options.single_frame : 0;
@@ -218,15 +236,20 @@ int main(int argc, char** argv)
             throw std::runtime_error("frame index out of range (0.." + std::to_string(total - 1) + ")");
 
         for (int index = first; index <= last; ++index) {
+            const auto frame_start = std::chrono::steady_clock::now();
             const float time_seconds = ospr::frame_time(script, index);
             const auto& pixels = frame_renderer.render(
-                ospr::camera_at(script.keyframes, time_seconds));
+                ospr::camera_for(script, time_seconds),
+                ospr::opacity_at(script.keyframes, time_seconds));
 
             const std::string path = frame_path(directory, index);
             ospr::write_png_rgba(
                 path, frame_renderer.width(), frame_renderer.height(), pixels.data());
             std::cout << "frame " << index << "/" << total - 1 << "  t=" << time_seconds
-                      << "s  -> " << path << "\n";
+                      << "s  " << std::chrono::duration<double>(
+                             std::chrono::steady_clock::now() - frame_start)
+                             .count()
+                      << " s  -> " << path << "\n";
         }
         return 0;
     } catch (const std::exception& error) {

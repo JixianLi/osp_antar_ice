@@ -41,6 +41,47 @@ Vec3 orthogonalize_up(Vec3 up, Vec3 forward)
 
 } // namespace
 
+namespace {
+
+// Returns the index of the segment starting at or before time_seconds, plus the
+// eased position within it.
+struct Segment
+{
+    int index{0};
+    float t{0.0f};
+};
+
+Segment locate(const std::vector<Keyframe>& keyframes, float time_seconds)
+{
+    const int last = static_cast<int>(keyframes.size()) - 1;
+    int index = 0;
+    while (index < last - 1 && keyframes[index + 1].time_seconds <= time_seconds)
+        ++index;
+
+    const Keyframe& from = keyframes[index];
+    const Keyframe& to = keyframes[index + 1];
+    const float span = to.time_seconds - from.time_seconds;
+    const float raw = span > 0.0f ? (time_seconds - from.time_seconds) / span : 0.0f;
+    return {index, apply_ease(std::clamp(raw, 0.0f, 1.0f), from.ease)};
+}
+
+} // namespace
+
+OpacityCurve opacity_at(const std::vector<Keyframe>& keyframes, float time_seconds)
+{
+    if (keyframes.empty())
+        return OpacityCurve{};
+    if (keyframes.size() == 1 || time_seconds <= keyframes.front().time_seconds)
+        return keyframes.front().opacity;
+    if (time_seconds >= keyframes.back().time_seconds)
+        return keyframes.back().opacity;
+
+    const Segment segment = locate(keyframes, time_seconds);
+    return lerp(keyframes[segment.index].opacity,
+        keyframes[segment.index + 1].opacity,
+        segment.t);
+}
+
 Camera camera_at(const std::vector<Keyframe>& keyframes, float time_seconds)
 {
     if (keyframes.empty())
@@ -51,16 +92,12 @@ Camera camera_at(const std::vector<Keyframe>& keyframes, float time_seconds)
         return keyframes.back().camera;
 
     const int last = static_cast<int>(keyframes.size()) - 1;
-    int segment = 0;
-    while (segment < last - 1 && keyframes[segment + 1].time_seconds <= time_seconds)
-        ++segment;
+    const Segment located = locate(keyframes, time_seconds);
+    const int segment = located.index;
+    const float t = located.t;
 
     const Keyframe& from = keyframes[segment];
     const Keyframe& to = keyframes[segment + 1];
-    const float span = to.time_seconds - from.time_seconds;
-    const float raw = span > 0.0f ? (time_seconds - from.time_seconds) / span : 0.0f;
-    const float t = apply_ease(std::clamp(raw, 0.0f, 1.0f), from.ease);
-
     const Camera& before = keyframes[std::max(segment - 1, 0)].camera;
     const Camera& after = keyframes[std::min(segment + 2, last)].camera;
 

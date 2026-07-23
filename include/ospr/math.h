@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
 
 #include <ospray/ospray_cpp/Traits.h>
 
@@ -19,6 +20,26 @@ struct Vec4
 struct Vec3ui
 {
     unsigned int x{0}, y{0}, z{0};
+};
+
+struct Vec2
+{
+    float x{0.0f}, y{0.0f};
+};
+
+// OSPRay infers a 3D Data array's shape from a vec3ul, so volume dimensions
+// have to be passed as this rather than as three separate integers. cpp::Data
+// reinterprets the address of one as three contiguous elements and default-
+// constructs a stride with DIM_T(0), hence the scalar constructor.
+struct Vec3ul
+{
+    unsigned long long x{0}, y{0}, z{0};
+
+    Vec3ul() = default;
+    explicit Vec3ul(unsigned long long value) : x(value), y(value), z(value) {}
+    Vec3ul(unsigned long long x_value, unsigned long long y_value, unsigned long long z_value)
+        : x(x_value), y(y_value), z(z_value)
+    {}
 };
 
 inline Vec3 operator+(Vec3 a, Vec3 b)
@@ -75,4 +96,6 @@ namespace ospray {
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec3, OSP_VEC3F);
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec4, OSP_VEC4F);
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec3ui, OSP_VEC3UI);
+OSPTYPEFOR_SPECIALIZATION(ospr::Vec2, OSP_VEC2F);
+OSPTYPEFOR_SPECIALIZATION(ospr::Vec3ul, OSP_VEC3UL);
 } // namespace ospray
