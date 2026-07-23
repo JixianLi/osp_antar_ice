@@ -7,6 +7,7 @@
 #include "ospr/colormap.h"
 #include "ospr/opacity_curve.h"
 #include "ospr/script.h"
+#include "ospr/vtk_xml.h"
 
 namespace ospr {
 
@@ -68,10 +69,15 @@ private:
         ColorMap colormap;
     };
 
-    void add_volume(const VolumeSpec& spec, float z_scale);
-    void add_surface(const SurfaceSpec& spec, float z_scale);
+    void add_volume(const ImageData& data, const VolumeSpec& spec, float z_scale);
+    void add_surface(const StructuredGrid& grid, const SurfaceSpec& spec, float z_scale);
     void add_tetrahedron(const TetrahedronSpec& spec);
     void build_world(const Session& session);
+
+    // Every object is rescaled so the whole scene's longest side spans [-1, 1]
+    // about the origin, aspect preserved. Keeps camera distance, near clip and
+    // volume densityScale all O(1) instead of scattered across 1e6 metres.
+    Vec3 to_normalized(Vec3 world) const { return (world - center_) * scale_; }
 
     std::vector<VolumeEntry> volumes_;
     std::vector<SurfaceEntry> surfaces_;
@@ -80,7 +86,8 @@ private:
     ospray::cpp::Instance instance_;
     ospray::cpp::World world_;
     Bounds bounds_;
-    bool bounds_initialised_{false};
+    Vec3 center_;
+    float scale_{1.0f};
 };
 
 } // namespace ospr

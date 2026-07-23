@@ -232,9 +232,9 @@ int main(int argc, char** argv)
                      ++index) {
                     ImGui::PushID(static_cast<int>(1000 + index));
                     float density = renderer.scene().volume_spec(index).density_scale;
-                    // Extinction per world unit. The scene is ~1e6 across, so the
-                    // useful range is tiny and a plausible-looking 1.0 is opaque.
-                    if (ImGui::SliderFloat("density", &density, 1e-6f, 2e-4f, "%.2e",
+                    // Extinction per normalised unit; the scene spans [-1, 1],
+                    // so this is an O(1) knob.
+                    if (ImGui::SliderFloat("density", &density, 0.1f, 100.0f, "%.2f",
                             ImGuiSliderFlags_Logarithmic)) {
                         renderer.scene().set_density_scale(index, density);
                         renderer.reset();

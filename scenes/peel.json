@@ -20,7 +20,7 @@
           0,
           5
         ],
-        "density_scale": 3e-05,
+        "density_scale": 8.0,
         "color": {
           "map": "c16.json",
           "trim": [

@@ -102,23 +102,99 @@ void frame_scene(OrbitSpec& orbit, const Bounds& bounds, float aspect)
     orbit.radius = 1.15f * required;
 }
 
+namespace {
+
+void grow(Bounds& bounds, bool& initialised, Vec3 lo, Vec3 hi)
+{
+    if (!initialised) {
+        bounds = {lo, hi};
+        initialised = true;
+        return;
+    }
+    bounds.lo = {std::min(bounds.lo.x, lo.x),
+        std::min(bounds.lo.y, lo.y),
+        std::min(bounds.lo.z, lo.z)};
+    bounds.hi = {std::max(bounds.hi.x, hi.x),
+        std::max(bounds.hi.y, hi.y),
+        std::max(bounds.hi.z, hi.z)};
+}
+
+// z_scale is applied here, so bounds and every built object share one convention:
+// exaggerate depth first, then normalise the exaggerated scene.
+Vec3 volume_corner(const ImageData& data, float z_scale, int side)
+{
+    return {static_cast<float>(data.origin[0] + (side ? data.spacing[0] * (data.dims[0] - 1) : 0.0)),
+        static_cast<float>(data.origin[1] + (side ? data.spacing[1] * (data.dims[1] - 1) : 0.0)),
+        static_cast<float>(
+            (data.origin[2] + (side ? data.spacing[2] * (data.dims[2] - 1) : 0.0)) * z_scale)};
+}
+
+} // namespace
+
 Scene::Scene(const Session& session)
 {
-    for (const VolumeSpec& volume : session.volumes)
-        add_volume(volume, session.z_scale);
-    for (const SurfaceSpec& surface : session.surfaces)
-        add_surface(surface, session.z_scale);
+    // Load everything first so the combined bounds are known before any object
+    // is built: the normalisation depends on the whole scene's extent.
+    std::vector<ImageData> volume_data;
+    std::vector<StructuredGrid> surface_data;
+    volume_data.reserve(session.volumes.size());
+    surface_data.reserve(session.surfaces.size());
+
+    Bounds raw;
+    bool initialised = false;
+
+    for (const VolumeSpec& spec : session.volumes) {
+        ImageData data = read_vti(spec.path);
+        if (data.find(spec.scalar) == nullptr)
+            throw std::runtime_error(
+                spec.path + ": no point array named '" + spec.scalar + "'");
+        grow(raw, initialised, volume_corner(data, session.z_scale, 0),
+            volume_corner(data, session.z_scale, 1));
+        volume_data.push_back(std::move(data));
+    }
+
+    for (const SurfaceSpec& spec : session.surfaces) {
+        StructuredGrid grid = read_vts(spec.path);
+        if (grid.find(spec.color_by) == nullptr)
+            throw std::runtime_error(
+                spec.path + ": no point array named '" + spec.color_by + "'");
+        Vec3 lo{std::numeric_limits<float>::infinity(),
+            std::numeric_limits<float>::infinity(),
+            std::numeric_limits<float>::infinity()};
+        Vec3 hi{-lo.x, -lo.y, -lo.z};
+        for (const Vec3& point : grid.points) {
+            const Vec3 scaled{point.x, point.y, point.z * session.z_scale};
+            if (!finite(scaled))
+                continue;
+            lo = {std::min(lo.x, scaled.x), std::min(lo.y, scaled.y), std::min(lo.z, scaled.z)};
+            hi = {std::max(hi.x, scaled.x), std::max(hi.y, scaled.y), std::max(hi.z, scaled.z)};
+        }
+        grow(raw, initialised, lo, hi);
+        surface_data.push_back(std::move(grid));
+    }
+
+    for (const TetrahedronSpec& spec : session.tetrahedra)
+        grow(raw, initialised, {-spec.scale, -spec.scale, -spec.scale},
+            {spec.scale, spec.scale, spec.scale});
+
+    center_ = initialised ? raw.center() : Vec3{};
+    const float longest = std::max(
+        {raw.hi.x - raw.lo.x, raw.hi.y - raw.lo.y, raw.hi.z - raw.lo.z});
+    scale_ = (initialised && longest > 0.0f) ? 2.0f / longest : 1.0f;
+    bounds_ = {to_normalized(raw.lo), to_normalized(raw.hi)};
+
+    for (std::size_t index = 0; index < session.volumes.size(); ++index)
+        add_volume(volume_data[index], session.volumes[index], session.z_scale);
+    for (std::size_t index = 0; index < session.surfaces.size(); ++index)
+        add_surface(surface_data[index], session.surfaces[index], session.z_scale);
     for (const TetrahedronSpec& tetrahedron : session.tetrahedra)
         add_tetrahedron(tetrahedron);
     build_world(session);
 }
 
-void Scene::add_volume(const VolumeSpec& spec, float z_scale)
+void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_scale)
 {
-    const ImageData data = read_vti(spec.path);
     const DataArray* scalar = data.find(spec.scalar);
-    if (scalar == nullptr)
-        throw std::runtime_error(spec.path + ": no point array named '" + spec.scalar + "'");
 
     const ColorMap colormap
         = load_colormap(spec.colormap_path, "", LUT_SIZE, spec.trim);
@@ -156,14 +232,18 @@ void Scene::add_volume(const VolumeSpec& spec, float z_scale)
             Vec3ul{static_cast<unsigned long long>(data.dims[0]),
                 static_cast<unsigned long long>(data.dims[1]),
                 static_cast<unsigned long long>(data.dims[2])}));
+    // gridOrigin is a point (centre-subtract then scale); gridSpacing is a step
+    // vector (scale only). A voxel step in normalised space is the metre step
+    // times scale_.
     volume.setParam("gridOrigin",
-        Vec3{static_cast<float>(data.origin[0]),
+        to_normalized({static_cast<float>(data.origin[0]),
             static_cast<float>(data.origin[1]),
-            static_cast<float>(data.origin[2] * z_scale)});
+            static_cast<float>(data.origin[2] * z_scale)}));
     volume.setParam("gridSpacing",
         Vec3{static_cast<float>(data.spacing[0]),
             static_cast<float>(data.spacing[1]),
-            static_cast<float>(data.spacing[2] * z_scale)});
+            static_cast<float>(data.spacing[2] * z_scale)}
+            * scale_);
     volume.commit();
 
     ospray::cpp::VolumetricModel model(volume);
@@ -171,30 +251,11 @@ void Scene::add_volume(const VolumeSpec& spec, float z_scale)
     model.setParam("densityScale", spec.density_scale);
     model.commit();
 
-    const Vec3 lo{static_cast<float>(data.origin[0]),
-        static_cast<float>(data.origin[1]),
-        static_cast<float>(data.origin[2] * z_scale)};
-    const Vec3 hi{lo.x + static_cast<float>(data.spacing[0] * (data.dims[0] - 1)),
-        lo.y + static_cast<float>(data.spacing[1] * (data.dims[1] - 1)),
-        lo.z + static_cast<float>(data.spacing[2] * z_scale * (data.dims[2] - 1))};
-    if (!bounds_initialised_) {
-        bounds_ = {lo, hi};
-        bounds_initialised_ = true;
-    } else {
-        bounds_.lo = {std::min(bounds_.lo.x, lo.x),
-            std::min(bounds_.lo.y, lo.y),
-            std::min(bounds_.lo.z, lo.z)};
-        bounds_.hi = {std::max(bounds_.hi.x, hi.x),
-            std::max(bounds_.hi.y, hi.y),
-            std::max(bounds_.hi.z, hi.z)};
-    }
-
     volumes_.push_back({spec, transfer, model});
 }
 
-void Scene::add_surface(const SurfaceSpec& spec, float z_scale)
+void Scene::add_surface(const StructuredGrid& grid, const SurfaceSpec& spec, float z_scale)
 {
-    const StructuredGrid grid = read_vts(spec.path);
     const DataArray* field = grid.find(spec.color_by);
     if (field == nullptr)
         throw std::runtime_error(
@@ -207,7 +268,7 @@ void Scene::add_surface(const SurfaceSpec& spec, float z_scale)
     const float span = std::max(spec.value_range.hi - spec.value_range.lo, 1e-6f);
     for (std::size_t index = 0; index < grid.points.size(); ++index) {
         const Vec3& point = grid.points[index];
-        positions[index] = {point.x, point.y, point.z * z_scale};
+        positions[index] = to_normalized({point.x, point.y, point.z * z_scale});
         const Vec3 color
             = sample(colormap.colors, (field->values[index] - spec.value_range.lo) / span);
         colors[index] = {color.x, color.y, color.z, 1.0f};
@@ -251,28 +312,6 @@ void Scene::add_surface(const SurfaceSpec& spec, float z_scale)
     model.setParam("material", material);
     model.commit();
 
-    Vec3 lo{std::numeric_limits<float>::infinity(),
-        std::numeric_limits<float>::infinity(),
-        std::numeric_limits<float>::infinity()};
-    Vec3 hi{-lo.x, -lo.y, -lo.z};
-    for (const Vec3& point : positions) {
-        if (!finite(point))
-            continue;
-        lo = {std::min(lo.x, point.x), std::min(lo.y, point.y), std::min(lo.z, point.z)};
-        hi = {std::max(hi.x, point.x), std::max(hi.y, point.y), std::max(hi.z, point.z)};
-    }
-    if (!bounds_initialised_) {
-        bounds_ = {lo, hi};
-        bounds_initialised_ = true;
-    } else {
-        bounds_.lo = {std::min(bounds_.lo.x, lo.x),
-            std::min(bounds_.lo.y, lo.y),
-            std::min(bounds_.lo.z, lo.z)};
-        bounds_.hi = {std::max(bounds_.hi.x, hi.x),
-            std::max(bounds_.hi.y, hi.y),
-            std::max(bounds_.hi.z, hi.z)};
-    }
-
     surfaces_.push_back({spec, material, model, mesh, field->values, colormap});
 }
 
@@ -282,8 +321,10 @@ void Scene::add_surface(const SurfaceSpec& spec, float z_scale)
 void Scene::add_tetrahedron(const TetrahedronSpec& spec)
 {
     const float s = spec.scale;
-    const std::vector<Vec3> positions{
-        {s, s, s}, {s, -s, -s}, {-s, s, -s}, {-s, -s, s}};
+    const std::vector<Vec3> positions{to_normalized({s, s, s}),
+        to_normalized({s, -s, -s}),
+        to_normalized({-s, s, -s}),
+        to_normalized({-s, -s, s})};
     const std::vector<Vec4> colors{{0.90f, 0.15f, 0.15f, 1.0f},
         {0.15f, 0.80f, 0.25f, 1.0f},
         {0.20f, 0.35f, 0.95f, 1.0f},
@@ -303,13 +344,6 @@ void Scene::add_tetrahedron(const TetrahedronSpec& spec)
     ospray::cpp::GeometricModel model(mesh);
     model.setParam("material", material);
     model.commit();
-
-    const Vec3 lo{-s, -s, -s};
-    const Vec3 hi{s, s, s};
-    if (!bounds_initialised_) {
-        bounds_ = {lo, hi};
-        bounds_initialised_ = true;
-    }
 
     SurfaceSpec spec_placeholder;
     spec_placeholder.layer = -1.0f;
