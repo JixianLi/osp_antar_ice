@@ -12,9 +12,6 @@
 
 namespace ospr {
 
-// The five isochrone surfaces the volume is coloured by: L1, L5, L7, Basal, Bed.
-inline constexpr int LAYER_COUNT = 5;
-
 struct Bounds
 {
     Vec3 lo;
@@ -54,15 +51,11 @@ public:
     // so this rebuilds the volume rather than re-parameterising it.
     void set_layer_fill(float fraction);
     float layer_fill() const;
-    // Reloads the two colourmaps and rebuilds the LUT. Cheap: colour is by
-    // layer_id through the transfer function, so nothing about the volume moves.
-    // Throws (leaving the current colours) if either file is missing or invalid.
-    void set_colormaps(std::size_t index, const std::string& ice_path,
-        ColorMapTrim ice_trim, const std::string& rock_path, ColorMapTrim rock_trim,
-        float split);
-    // Alternative to the ramps: paint each layer a single colour, keyed by
-    // layer_id rounded to the nearest surface, so all five colours appear and
-    // boundaries fall at the midpoints between isochrones. Same LUT-only cost.
+    // Paints each layer a single colour, keyed by layer_id rounded to the
+    // nearest surface, so all five colours appear and boundaries fall at the
+    // midpoints between isochrones. Cheap: colour is by layer_id through the
+    // transfer function, a 256-entry LUT rebuild, so nothing about the volume
+    // moves.
     void set_flat_colors(std::size_t index, const std::array<Vec3, LAYER_COUNT>& layer_colors);
 
     std::size_t volume_count() const { return volumes_.size(); }

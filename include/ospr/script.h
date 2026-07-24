@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -8,6 +9,9 @@
 #include "ospr/math.h"
 
 namespace ospr {
+
+// The five isochrone surfaces the volume is coloured by: L1, L5, L7, Basal, Bed.
+inline constexpr int LAYER_COUNT = 5;
 
 struct Range
 {
@@ -20,13 +24,11 @@ struct VolumeSpec
     std::string path;
     std::string scalar{"layer_id"};
     Range value_range{0.0f, 5.0f};
-    // Colour is by layer_id directly. The ice colourmap covers [1, split]
-    // (dated ice, L1..L7), the rock colourmap covers [split, 5] (Basal, Bed).
-    std::string ice_colormap_path;
-    ColorMapTrim ice_trim;
-    std::string rock_colormap_path;
-    ColorMapTrim rock_trim;
-    float split{3.0f};
+    // Colour is by layer_id directly: one flat colour per isochrone surface,
+    // keyed by layer_id rounded to the nearest of the five (see build_flat_lut).
+    std::array<Vec3, LAYER_COUNT> layer_colors{{{0.75f, 0.87f, 0.95f},
+        {0.30f, 0.70f, 0.80f}, {0.40f, 0.70f, 0.35f}, {0.85f, 0.55f, 0.25f},
+        {0.35f, 0.22f, 0.15f}}};
     float density_scale{1.0f};
     // Extend the bed (deepest valid layer_id) straight down to the grid floor,
     // so the model sits on a solid rock base instead of a thin bed surface.
@@ -139,6 +141,23 @@ struct Script
 // the wrong type. Paths inside the script resolve relative to the script's own
 // directory.
 Script load_script(const std::string& path);
+
+// Section writers for the preview's per-section save buttons. Each re-reads the
+// file, replaces only the fields it names, and writes it back with 2-space
+// indent; every other value is preserved (formatting may normalise). They throw
+// std::runtime_error if the file is missing, malformed, or lacks the target
+// structure. The volume knobs address the first volume object; the colour save
+// too, since the scene has carried one volume throughout.
+void save_quality(const std::string& path, int spp, int shadow_samples, int ao_samples);
+void save_background(const std::string& path, Vec3 top, Vec3 bottom);
+void save_lights(const std::string& path, const std::vector<LightSpec>& lights);
+void save_volume(const std::string& path, float z_scale, float layer_fill, float density_scale);
+void save_colors(const std::string& path, const std::array<Vec3, LAYER_COUNT>& layer_colors);
+void save_frames_between(const std::string& path, int frames_between);
+void save_opacity(const std::string& path, int keyframe_index, const OpacityCurve& opacity);
+// Camera is global while the trajectory feature is hidden, so this writes the
+// one pose to every keyframe, keeping them identical.
+void save_camera(const std::string& path, float azimuth, float elevation, float fov, float radius);
 
 // Frames the keyframes expand to, and the keyframe-index parameter u a given
 // output frame maps to.

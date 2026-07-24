@@ -18,11 +18,10 @@ struct OpacityCurve
 {
     std::vector<OpacityPoint> points;
 
-    // Samples with monotone cubic Hermite interpolation (Fritsch & Carlson
-    // 1980). A Catmull-Rom spline through a knee as steep as the peel front
-    // overshoots past 0 and 1 on either side of it; clamping that would leave a
-    // bright ring above the front. The monotone scheme provably stays within
-    // the range spanned by its control points.
+    // Piecewise linear between control points, held flat at the endpoint values
+    // outside [front, back]. The editor is control-point based, so the drawn
+    // segments are exactly what renders -- no spline is interposed between what
+    // the author places and the sampled 256-entry LUT.
     float at(float layer) const;
 };
 

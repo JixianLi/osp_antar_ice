@@ -6,9 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdio>
 #include <exception>
-#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -33,20 +31,12 @@ namespace {
 // Preview is always 16:9 to match the 4K output; the selector picks the long
 // side. 1024 x 576 is a real preview at speed, not a thumbnail.
 constexpr float VIEW_ASPECT = 16.0f / 9.0f;
-constexpr int RESOLUTION_LONG_SIDES[] = {128, 256, 512, 1024};
+constexpr int RESOLUTION_LONG_SIDES[] = {128, 256, 512, 1024, 3840};
 constexpr float DEGREES_TO_RADIANS = 3.14159265358979323846f / 180.0f;
 
 int height_for(int long_side)
 {
     return static_cast<int>(std::lround(long_side / VIEW_ASPECT));
-}
-
-// A colourmap the user types is relative to the session file, the same as the
-// paths written in it; an absolute one is taken as given.
-std::string resolve_against(const std::filesystem::path& base, const char* typed)
-{
-    const std::filesystem::path path(typed);
-    return (path.is_absolute() ? path : base / path).string();
 }
 
 // Free orbit the mouse drives, seeded from the script's orbit so the preview
@@ -111,9 +101,11 @@ void draw_render(GLuint texture, float view_width, float view_height)
         ImVec2(1.0f, 0.0f));
 }
 
-// Draggable opacity-vs-layer_id editor. x is layer_id in [0, 5], y is opacity in
-// [0, 1]. Left-drag a point to move it, double-click empty space to add one,
-// right-click a point to delete it. Returns true when the curve changed.
+// Piecewise-linear opacity-vs-layer_id editor. x is layer_id in [0, 5], y is
+// opacity in [0, 1]. Left-drag a point to move it. Right-click empty space to
+// add a point, right-click a point to remove it. The first and last points are
+// fixed anchors: they hold their x and cannot be removed; dragging one changes
+// its opacity only. Returns true when the curve changed.
 bool opacity_editor(const char* id, ospr::OpacityCurve& curve)
 {
     constexpr float LAYER_MAX = 5.0f;
@@ -128,29 +120,33 @@ bool opacity_editor(const char* id, ospr::OpacityCurve& curve)
 
     const auto to_x = [&](float layer) { return p0.x + (layer / LAYER_MAX) * (p1.x - p0.x); };
     const auto to_y = [&](float opacity) { return p1.y - opacity * (p1.y - p0.y); };
-    const auto from = [&](ImVec2 pixel) {
-        return ospr::OpacityPoint{
-            std::clamp((pixel.x - p0.x) / (p1.x - p0.x) * LAYER_MAX, 0.0f, LAYER_MAX),
-            std::clamp((p1.y - pixel.y) / (p1.y - p0.y), 0.0f, 1.0f)};
-    };
+    const auto layer_at
+        = [&](float px) { return std::clamp((px - p0.x) / (p1.x - p0.x) * LAYER_MAX, 0.0f, LAYER_MAX); };
+    const auto opacity_at
+        = [&](float py) { return std::clamp((p1.y - py) / (p1.y - p0.y), 0.0f, 1.0f); };
 
     for (int layer = 1; layer < 5; ++layer)
         draw->AddLine(ImVec2(to_x(static_cast<float>(layer)), p0.y),
             ImVec2(to_x(static_cast<float>(layer)), p1.y),
             IM_COL32(45, 45, 55, 255));
 
-    ImVec2 previous;
-    for (int step = 0; step <= 64; ++step) {
-        const float layer = LAYER_MAX * step / 64.0f;
-        const ImVec2 point(to_x(layer), to_y(curve.at(layer)));
-        if (step > 0)
-            draw->AddLine(previous, point, IM_COL32(120, 180, 255, 255), 2.0f);
-        previous = point;
-    }
+    // The rendered LUT is exactly these segments, held flat past the anchors.
+    constexpr ImU32 CURVE_COL = IM_COL32(120, 180, 255, 255);
+    const ospr::OpacityPoint& front = curve.points.front();
+    const ospr::OpacityPoint& back = curve.points.back();
+    draw->AddLine(ImVec2(p0.x, to_y(front.opacity)), ImVec2(to_x(front.layer), to_y(front.opacity)),
+        CURVE_COL, 2.0f);
+    draw->AddLine(ImVec2(to_x(back.layer), to_y(back.opacity)), ImVec2(p1.x, to_y(back.opacity)),
+        CURVE_COL, 2.0f);
+    for (std::size_t index = 0; index + 1 < curve.points.size(); ++index)
+        draw->AddLine(ImVec2(to_x(curve.points[index].layer), to_y(curve.points[index].opacity)),
+            ImVec2(to_x(curve.points[index + 1].layer), to_y(curve.points[index + 1].opacity)),
+            CURVE_COL, 2.0f);
 
     bool changed = false;
     static int drag = -1;
     const ImVec2 mouse = ImGui::GetIO().MousePos;
+    const int last = static_cast<int>(curve.points.size()) - 1;
 
     int hovered = -1;
     for (std::size_t index = 0; index < curve.points.size(); ++index) {
@@ -166,22 +162,30 @@ bool opacity_editor(const char* id, ospr::OpacityCurve& curve)
 
     if (ImGui::IsItemActive() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
         drag = hovered;
-    if (drag >= 0 && ImGui::IsMouseDown(ImGuiMouseButton_Left)
-        && drag < static_cast<int>(curve.points.size())) {
-        curve.points[drag] = from(mouse);
+    if (drag >= 0 && ImGui::IsMouseDown(ImGuiMouseButton_Left) && drag <= last) {
+        curve.points[drag].opacity = opacity_at(mouse.y);
+        if (drag != 0 && drag != last) {
+            // Keep interior points strictly between the fixed anchors so a drag
+            // cannot reorder one past an end and hijack the drag index.
+            const float eps = 1e-3f * (back.layer - front.layer);
+            curve.points[drag].layer = std::clamp(layer_at(mouse.x),
+                front.layer + eps, back.layer - eps);
+        }
         changed = true;
     }
     if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
         drag = -1;
 
-    if (hovered >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Right)
-        && curve.points.size() > 2) {
-        curve.points.erase(curve.points.begin() + hovered);
-        changed = true;
-    }
-    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        curve.points.push_back(from(mouse));
-        changed = true;
+    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        if (hovered > 0 && hovered < last) {
+            curve.points.erase(curve.points.begin() + hovered);
+            changed = true;
+        } else if (hovered < 0) {
+            curve.points.push_back(
+                ospr::OpacityPoint{layer_at(mouse.x), opacity_at(mouse.y)});
+            changed = true;
+        }
+        // hovered == 0 or == last is an anchor: neither removed nor re-added.
     }
 
     if (changed) {
@@ -275,57 +279,42 @@ int main(int argc, char** argv)
         // Held across frames because the fill is applied on release, not on drag.
         float layer_fill = renderer.scene().layer_fill();
 
-        // Colourmaps are edited as text and applied on a button, so the buffers
-        // persist. Seeded from the session file, which stores absolute paths.
-        // The editor drives volume 0; the scene has held a single volume
-        // throughout, so a per-volume UI would be unused machinery.
-        const std::filesystem::path session_dir
-            = std::filesystem::absolute(script_path).parent_path();
-        char ice_path_buffer[512] = {};
-        char rock_path_buffer[512] = {};
-        float ice_trim[2] = {0.0f, 1.0f};
-        float rock_trim[2] = {0.0f, 1.0f};
-        float color_split = 3.0f;
-        std::string color_error;
+        // Flat per-layer colour drives volume 0; the scene has held a single
+        // volume throughout, so a per-volume UI would be unused machinery.
+        // Seeded from the session file so edits start from what is on disk.
+        float flat_colors[ospr::LAYER_COUNT][3] = {};
         if (renderer.scene().volume_count() > 0) {
             const ospr::VolumeSpec& spec = renderer.scene().volume_spec(0);
-            std::snprintf(ice_path_buffer, sizeof ice_path_buffer, "%s",
-                spec.ice_colormap_path.c_str());
-            std::snprintf(rock_path_buffer, sizeof rock_path_buffer, "%s",
-                spec.rock_colormap_path.c_str());
-            ice_trim[0] = spec.ice_trim.lo;
-            ice_trim[1] = spec.ice_trim.hi;
-            rock_trim[0] = spec.rock_trim.lo;
-            rock_trim[1] = spec.rock_trim.hi;
-            color_split = spec.split;
+            for (int layer = 0; layer < ospr::LAYER_COUNT; ++layer) {
+                flat_colors[layer][0] = spec.layer_colors[layer].x;
+                flat_colors[layer][1] = spec.layer_colors[layer].y;
+                flat_colors[layer][2] = spec.layer_colors[layer].z;
+            }
         }
-
-        bool flat_color_mode = false;
-        float flat_colors[ospr::LAYER_COUNT][3] = {{0.75f, 0.87f, 0.95f},
-            {0.30f, 0.70f, 0.80f},
-            {0.40f, 0.70f, 0.35f},
-            {0.85f, 0.55f, 0.25f},
-            {0.35f, 0.22f, 0.15f}};
         const char* const flat_labels[ospr::LAYER_COUNT] = {"L1", "L5", "L7", "Basal", "Bed"};
 
-        const auto apply_flat_colors = [&]() {
+        const auto flat_color_array = [&]() {
             std::array<ospr::Vec3, ospr::LAYER_COUNT> colors;
             for (int layer = 0; layer < ospr::LAYER_COUNT; ++layer)
                 colors[layer]
                     = {flat_colors[layer][0], flat_colors[layer][1], flat_colors[layer][2]};
-            renderer.scene().set_flat_colors(0, colors);
+            return colors;
+        };
+        const auto apply_flat_colors = [&]() {
+            renderer.scene().set_flat_colors(0, flat_color_array());
             renderer.reset();
         };
-        const auto apply_colormap = [&]() {
+
+        // Every section's save button funnels through this so a write failure
+        // (bad path, unwritable file) surfaces instead of throwing out of the
+        // loop. Cleared on the next successful save.
+        std::string save_error;
+        const auto guard_save = [&](const auto& write) {
             try {
-                renderer.scene().set_colormaps(0,
-                    resolve_against(session_dir, ice_path_buffer), {ice_trim[0], ice_trim[1]},
-                    resolve_against(session_dir, rock_path_buffer), {rock_trim[0], rock_trim[1]},
-                    color_split);
-                color_error.clear();
-                renderer.reset();
+                write();
+                save_error.clear();
             } catch (const std::exception& error) {
-                color_error = error.what();
+                save_error = error.what();
             }
         };
 
@@ -359,12 +348,15 @@ int main(int argc, char** argv)
                 preview_height,
                 renderer.accumulated(),
                 renderer.target_samples());
-            static const char* const RESOLUTION_LABELS[] = {"128", "256", "512", "1024"};
-            if (ImGui::Combo("resolution", &resolution_index, RESOLUTION_LABELS, 4)) {
+            static const char* const RESOLUTION_LABELS[] = {"128", "256", "512", "1024", "4K"};
+            if (ImGui::Combo("resolution", &resolution_index, RESOLUTION_LABELS, 5)) {
                 preview_width = RESOLUTION_LONG_SIDES[resolution_index];
                 preview_height = height_for(preview_width);
                 renderer.set_resolution(preview_width, preview_height);
             }
+            if (!save_error.empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "save failed: %s",
+                    save_error.c_str());
 
             if (ImGui::CollapsingHeader("quality", ImGuiTreeNodeFlags_DefaultOpen)) {
                 int spp = renderer.target_samples();
@@ -379,6 +371,11 @@ int main(int argc, char** argv)
                 // shadow samples apply to the path tracer, ao samples to scivis;
                 // the other is inert for the current renderer.
                 ImGui::TextDisabled("(%s)", renderer.renderer_type().c_str());
+                if (ImGui::Button("save quality"))
+                    guard_save([&]() {
+                        ospr::save_quality(script_path, renderer.target_samples(),
+                            renderer.light_samples(), renderer.ao_samples());
+                    });
             }
             ImGui::Separator();
 
@@ -428,6 +425,11 @@ int main(int argc, char** argv)
                 ImGui::Text("opacity at keyframe %d", keyframe_index);
                 if (opacity_editor("opacity", script.keyframes[keyframe_index].opacity))
                     dirty = true;
+                if (ImGui::Button("save opacity"))
+                    guard_save([&]() {
+                        ospr::save_opacity(script_path, keyframe_index,
+                            script.keyframes[keyframe_index].opacity);
+                    });
             }
 
             if (ImGui::CollapsingHeader("camera", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -447,6 +449,33 @@ int main(int argc, char** argv)
                 ImGui::SliderFloat("fov", &orbit.fov_y_degrees, 10.0f, 90.0f);
                 ImGui::SliderFloat("radius", &orbit.radius, bounds.diagonal() * 0.15f,
                     bounds.diagonal() * 3.0f);
+                // Pull the free camera back onto the keyframe pose and follow the
+                // script again, so play (which reads the keyframes) continues from
+                // exactly the view shown here rather than jumping.
+                if (ImGui::Button("reset camera")) {
+                    const ospr::Keyframe& keyframe = script.keyframes[keyframe_index];
+                    orbit.center = fit.center;
+                    orbit.azimuth_degrees = keyframe.azimuth_degrees;
+                    orbit.elevation_degrees = keyframe.elevation_degrees;
+                    orbit.fov_y_degrees = keyframe.fov_y_degrees;
+                    orbit.radius = keyframe.radius;
+                    follow_script_camera = true;
+                }
+                ImGui::SameLine();
+                // Global pose while the trajectory feature is hidden: written to
+                // every keyframe so they stay identical. The in-memory keyframes
+                // are updated too, so play reflects the save without a reload.
+                if (ImGui::Button("save camera (all keyframes)"))
+                    guard_save([&]() {
+                        ospr::save_camera(script_path, orbit.azimuth_degrees,
+                            orbit.elevation_degrees, orbit.fov_y_degrees, orbit.radius);
+                        for (ospr::Keyframe& keyframe : script.keyframes) {
+                            keyframe.azimuth_degrees = orbit.azimuth_degrees;
+                            keyframe.elevation_degrees = orbit.elevation_degrees;
+                            keyframe.fov_y_degrees = orbit.fov_y_degrees;
+                            keyframe.radius = orbit.radius;
+                        }
+                    });
             }
 
             if (ImGui::CollapsingHeader("background", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -468,6 +497,10 @@ int main(int argc, char** argv)
                         = {bottom[0] / 255.0f, bottom[1] / 255.0f, bottom[2] / 255.0f};
                     renderer.set_background(background_top, background_bottom);
                 }
+                if (ImGui::Button("save background"))
+                    guard_save([&]() {
+                        ospr::save_background(script_path, background_top, background_bottom);
+                    });
             }
 
             if (ImGui::CollapsingHeader("lights", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -488,6 +521,8 @@ int main(int argc, char** argv)
                     renderer.scene().set_lights(lights);
                     renderer.reset();
                 }
+                if (ImGui::Button("save lights"))
+                    guard_save([&]() { ospr::save_lights(script_path, lights); });
             }
 
             if (ImGui::CollapsingHeader("volume", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -522,55 +557,37 @@ int main(int argc, char** argv)
                     }
                     ImGui::PopID();
                 }
+                if (renderer.scene().volume_count() > 0 && ImGui::Button("save volume"))
+                    guard_save([&]() {
+                        ospr::save_volume(script_path, renderer.scene().z_scale(), layer_fill,
+                            renderer.scene().volume_spec(0).density_scale);
+                    });
             }
 
             ImGui::End();
 
             ImGui::SetNextWindowSize(ImVec2(310, 0), ImGuiCond_FirstUseEver);
             ImGui::Begin("output");
-            // Drives the preview's own timeline only: there is no session save
-            // yet, so this does not reach the script on disk.
             if (ImGui::SliderInt("frames between", &script.frames_between, 1, 120)) {
                 last_frame = std::max(0, ospr::frame_count(script) - 1);
                 play_frame = std::min(play_frame, last_frame);
             }
             ImGui::Text("%d keyframes -> %d frames", keyframe_count, last_frame + 1);
+            if (ImGui::Button("save frames between"))
+                guard_save(
+                    [&]() { ospr::save_frames_between(script_path, script.frames_between); });
             ImGui::End();
 
             if (renderer.scene().volume_count() > 0) {
                 ImGui::SetNextWindowSize(ImVec2(440, 0), ImGuiCond_FirstUseEver);
                 ImGui::Begin("color");
-                if (ImGui::Checkbox("flat colors (one per layer)", &flat_color_mode)) {
-                    if (flat_color_mode)
-                        apply_flat_colors();
-                    else
-                        apply_colormap();
-                }
-                ImGui::Separator();
-                if (flat_color_mode) {
-                    bool changed = false;
-                    for (int layer = 0; layer < ospr::LAYER_COUNT; ++layer)
-                        changed |= ImGui::ColorEdit3(flat_labels[layer], flat_colors[layer]);
-                    if (changed)
-                        apply_flat_colors();
-                } else {
-                    ImGui::TextUnformatted("ice map  (layer_id 1 .. split)");
-                    ImGui::InputText("ice json", ice_path_buffer, sizeof ice_path_buffer);
-                    ImGui::DragFloat2("ice trim", ice_trim, 0.005f, 0.0f, 1.0f, "%.3f");
-                    ImGui::Separator();
-                    ImGui::TextUnformatted("rock map  (split .. 5)");
-                    ImGui::InputText("rock json", rock_path_buffer, sizeof rock_path_buffer);
-                    ImGui::DragFloat2("rock trim", rock_trim, 0.005f, 0.0f, 1.0f, "%.3f");
-                    ImGui::Separator();
-                    ImGui::SliderFloat("split", &color_split, 1.0f, 5.0f, "%.2f");
-                    // Applied on the button, not per keystroke: a half-typed path
-                    // is a missing file, and a rebuild reloads both colourmaps.
-                    if (ImGui::Button("apply colors"))
-                        apply_colormap();
-                    if (!color_error.empty())
-                        ImGui::TextColored(
-                            ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", color_error.c_str());
-                }
+                bool changed = false;
+                for (int layer = 0; layer < ospr::LAYER_COUNT; ++layer)
+                    changed |= ImGui::ColorEdit3(flat_labels[layer], flat_colors[layer]);
+                if (changed)
+                    apply_flat_colors();
+                if (ImGui::Button("save color"))
+                    guard_save([&]() { ospr::save_colors(script_path, flat_color_array()); });
                 ImGui::End();
             }
 

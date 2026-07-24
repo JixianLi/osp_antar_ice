@@ -89,16 +89,15 @@ VolumeSpec read_volume(
     if (!node.contains("color"))
         throw std::runtime_error(where + ": missing 'color'");
     const json& color = node.at("color");
-    if (!color.contains("ice_map") || !color.contains("rock_map"))
-        throw std::runtime_error(where + ".color: needs 'ice_map' and 'rock_map'");
-    volume.ice_colormap_path = resolve(base, color.at("ice_map").get<std::string>());
-    volume.rock_colormap_path = resolve(base, color.at("rock_map").get<std::string>());
-    if (color.contains("ice_trim"))
-        volume.ice_trim = read_trim(color.at("ice_trim"), where + ".color.ice_trim");
-    if (color.contains("rock_trim"))
-        volume.rock_trim = read_trim(color.at("rock_trim"), where + ".color.rock_trim");
-    if (color.contains("split"))
-        volume.split = color.at("split").get<float>();
+    if (!color.contains("layers"))
+        throw std::runtime_error(where + ".color: needs 'layers'");
+    const json& layers = color.at("layers");
+    if (!layers.is_array() || layers.size() != LAYER_COUNT)
+        throw std::runtime_error(
+            where + ".color.layers: expected " + std::to_string(LAYER_COUNT) + " [r, g, b] entries");
+    for (int layer = 0; layer < LAYER_COUNT; ++layer)
+        volume.layer_colors[layer] = read_vec3(
+            layers[layer], where + ".color.layers[" + std::to_string(layer) + "]");
     if (node.contains("layer_fill"))
         volume.layer_fill = node.at("layer_fill").get<float>();
     if (node.contains("fill_base"))
@@ -337,6 +336,160 @@ int keyframe_frame(const Script& script, int keyframe_index)
 Camera camera_for(const Script& script, float u)
 {
     return camera_at(script.keyframes, u, Vec3{0.0f, 0.0f, 0.0f}, script.up);
+}
+
+namespace {
+
+using nlohmann::ordered_json;
+
+// Assigning a float widens to double, whose shortest round-trip text can carry
+// the widening noise (0.35f -> "0.3499999940395355"). Round to 1e-6 first: finer
+// than any knob these buttons drive, coarse enough to serialise cleanly.
+double clean(float value)
+{
+    return std::round(static_cast<double>(value) * 1e6) / 1e6;
+}
+
+ordered_json clean3(Vec3 value)
+{
+    return ordered_json{clean(value.x), clean(value.y), clean(value.z)};
+}
+
+ordered_json read_document(const std::string& path)
+{
+    std::ifstream stream(path);
+    if (!stream)
+        throw std::runtime_error("cannot open script for saving: " + path);
+    try {
+        return ordered_json::parse(stream);
+    } catch (const ordered_json::parse_error& error) {
+        throw std::runtime_error("malformed JSON in " + path + ": " + error.what());
+    }
+}
+
+void write_document(const std::string& path, const ordered_json& document)
+{
+    std::ofstream stream(path);
+    if (!stream)
+        throw std::runtime_error("cannot write script: " + path);
+    stream << document.dump(2) << "\n";
+}
+
+ordered_json& session_of(ordered_json& document, const std::string& path)
+{
+    if (!document.contains("session"))
+        throw std::runtime_error(path + ": missing 'session'");
+    return document["session"];
+}
+
+ordered_json& first_volume(ordered_json& session, const std::string& path)
+{
+    if (session.contains("objects"))
+        for (ordered_json& object : session["objects"])
+            if (object.value("type", std::string()) == "volume")
+                return object;
+    throw std::runtime_error(path + ": no volume object to save into");
+}
+
+ordered_json& keyframes_of(ordered_json& document, const std::string& path)
+{
+    if (!document.contains("keyframes") || !document["keyframes"].is_array())
+        throw std::runtime_error(path + ": missing 'keyframes' array");
+    return document["keyframes"];
+}
+
+} // namespace
+
+void save_quality(const std::string& path, int spp, int shadow_samples, int ao_samples)
+{
+    ordered_json document = read_document(path);
+    ordered_json& renderer = session_of(document, path)["renderer"];
+    renderer["spp"] = spp;
+    renderer["shadow_samples"] = shadow_samples;
+    renderer["ao_samples"] = ao_samples;
+    write_document(path, document);
+}
+
+void save_background(const std::string& path, Vec3 top, Vec3 bottom)
+{
+    ordered_json document = read_document(path);
+    session_of(document, path)["renderer"]["background"]
+        = ordered_json{{"top", clean3(top)}, {"bottom", clean3(bottom)}};
+    write_document(path, document);
+}
+
+void save_lights(const std::string& path, const std::vector<LightSpec>& lights)
+{
+    ordered_json document = read_document(path);
+    ordered_json& session = session_of(document, path);
+    if (!session.contains("lights") || !session["lights"].is_array())
+        throw std::runtime_error(path + ": missing 'lights' array");
+    ordered_json& array = session["lights"];
+    // Patched in place: only the three fields the lights UI edits are touched,
+    // so visible, angular_diameter and any extra keys keep their exact bytes.
+    const std::size_t count = std::min(lights.size(), array.size());
+    for (std::size_t index = 0; index < count; ++index) {
+        array[index]["intensity"] = clean(lights[index].intensity);
+        array[index]["color"] = clean3(lights[index].color);
+        if (lights[index].type == "distant")
+            array[index]["direction"] = clean3(lights[index].direction);
+    }
+    write_document(path, document);
+}
+
+void save_volume(const std::string& path, float z_scale, float layer_fill, float density_scale)
+{
+    ordered_json document = read_document(path);
+    ordered_json& session = session_of(document, path);
+    session["z_scale"] = clean(z_scale);
+    ordered_json& volume = first_volume(session, path);
+    volume["layer_fill"] = clean(layer_fill);
+    volume["density_scale"] = clean(density_scale);
+    write_document(path, document);
+}
+
+void save_colors(const std::string& path, const std::array<Vec3, LAYER_COUNT>& layer_colors)
+{
+    ordered_json document = read_document(path);
+    ordered_json layers = ordered_json::array();
+    for (const Vec3& color : layer_colors)
+        layers.push_back(clean3(color));
+    first_volume(session_of(document, path), path)["color"]["layers"] = layers;
+    write_document(path, document);
+}
+
+void save_frames_between(const std::string& path, int frames_between)
+{
+    ordered_json document = read_document(path);
+    if (!document.contains("timeline"))
+        document["timeline"] = ordered_json::object();
+    document["timeline"]["frames_between"] = frames_between;
+    write_document(path, document);
+}
+
+void save_opacity(const std::string& path, int keyframe_index, const OpacityCurve& opacity)
+{
+    ordered_json document = read_document(path);
+    ordered_json& keyframes = keyframes_of(document, path);
+    if (keyframe_index < 0 || keyframe_index >= static_cast<int>(keyframes.size()))
+        throw std::runtime_error(path + ": keyframe index out of range");
+    ordered_json points = ordered_json::array();
+    for (const OpacityPoint& point : opacity.points)
+        points.push_back(ordered_json{clean(point.layer), clean(point.opacity)});
+    keyframes[keyframe_index]["opacity"] = points;
+    write_document(path, document);
+}
+
+void save_camera(const std::string& path, float azimuth, float elevation, float fov, float radius)
+{
+    ordered_json document = read_document(path);
+    for (ordered_json& keyframe : keyframes_of(document, path)) {
+        keyframe["azimuth"] = clean(azimuth);
+        keyframe["elevation"] = clean(elevation);
+        keyframe["fov"] = clean(fov);
+        keyframe["radius"] = clean(radius);
+    }
+    write_document(path, document);
 }
 
 } // namespace ospr

@@ -379,29 +379,11 @@ ProcessedVolume process_scalar(
     return processed;
 }
 
-// Colour is by layer_id directly: entry i is the layer_id it will be sampled at,
-// mapped through the ice ramp over [1, split] and the rock ramp over [split, 5].
-// No age conversion.
-std::vector<Vec3> build_color_lut(
-    const ColorMap& ice, const ColorMap& rock, float split, Range value_range)
-{
-    std::vector<Vec3> colors(LUT_SIZE);
-    for (int index = 0; index < LUT_SIZE; ++index) {
-        const float layer = lerp(value_range.lo,
-            value_range.hi,
-            static_cast<float>(index) / (LUT_SIZE - 1));
-        colors[index] = layer <= split
-            ? sample(ice.colors, (layer - 1.0f) / std::max(split - 1.0f, 1e-6f))
-            : sample(rock.colors, (layer - split) / std::max(5.0f - split, 1e-6f));
-    }
-    return colors;
-}
-
-// Flat mode: one colour per layer instead of a ramp. Entry i is coloured by the
-// layer_id it samples, rounded to the nearest surface (1..5), so each colour owns
-// the material within half a layer of its surface and the boundaries fall at the
-// midpoints. All five appear even though the data stops short of 5 at voxel
-// centres, because 4.5..5 still rounds to 5.
+// One colour per layer. Entry i is coloured by the layer_id it samples, rounded
+// to the nearest surface (1..5), so each colour owns the material within half a
+// layer of its surface and the boundaries fall at the midpoints. All five appear
+// even though the data stops short of 5 at voxel centres, because 4.5..5 still
+// rounds to 5.
 std::vector<Vec3> build_flat_lut(
     const std::array<Vec3, LAYER_COUNT>& layer_colors, Range value_range)
 {
@@ -425,10 +407,7 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_sc
         = process_scalar(scalar->values, data.dims, spec.layer_fill, spec.fill_base);
     const int extra = processed.nz - data.dims[2];
 
-    const ColorMap ice = load_colormap(spec.ice_colormap_path, "", LUT_SIZE, spec.ice_trim);
-    const ColorMap rock = load_colormap(spec.rock_colormap_path, "", LUT_SIZE, spec.rock_trim);
-    const std::vector<Vec3> colors
-        = build_color_lut(ice, rock, spec.split, spec.value_range);
+    const std::vector<Vec3> colors = build_flat_lut(spec.layer_colors, spec.value_range);
 
     // The transfer function and the volumetric model must be committed before
     // the Group is: Group::commit() asks each VolumetricModel for its Embree
@@ -683,30 +662,7 @@ float Scene::layer_fill() const
 }
 
 // Colour lives entirely in the transfer function LUT keyed by layer_id, so a
-// recolour is a 256-entry rebuild and a re-commit, not a volume rebuild. Both
-// maps are loaded before anything is committed, so a bad path throws and leaves
-// the current colours intact.
-void Scene::set_colormaps(std::size_t index, const std::string& ice_path,
-    ColorMapTrim ice_trim, const std::string& rock_path, ColorMapTrim rock_trim, float split)
-{
-    VolumeEntry& entry = volumes_[index];
-    const ColorMap ice = load_colormap(ice_path, "", LUT_SIZE, ice_trim);
-    const ColorMap rock = load_colormap(rock_path, "", LUT_SIZE, rock_trim);
-    const std::vector<Vec3> colors
-        = build_color_lut(ice, rock, split, entry.spec.value_range);
-
-    entry.transfer.setParam("color", ospray::cpp::CopiedData(colors));
-    entry.transfer.commit();
-    entry.model.commit();
-
-    entry.spec.ice_colormap_path = ice_path;
-    entry.spec.ice_trim = ice_trim;
-    entry.spec.rock_colormap_path = rock_path;
-    entry.spec.rock_trim = rock_trim;
-    entry.spec.split = split;
-    world_.commit();
-}
-
+// recolour is a 256-entry rebuild and a re-commit, not a volume rebuild.
 void Scene::set_flat_colors(
     std::size_t index, const std::array<Vec3, LAYER_COUNT>& layer_colors)
 {
@@ -715,6 +671,7 @@ void Scene::set_flat_colors(
     entry.transfer.setParam("color", ospray::cpp::CopiedData(colors));
     entry.transfer.commit();
     entry.model.commit();
+    entry.spec.layer_colors = layer_colors;
     world_.commit();
 }
 
