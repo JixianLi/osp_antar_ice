@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -36,6 +38,14 @@ constexpr float DEGREES_TO_RADIANS = 3.14159265358979323846f / 180.0f;
 int height_for(int long_side)
 {
     return static_cast<int>(std::lround(long_side / VIEW_ASPECT));
+}
+
+// A colourmap the user types is relative to the session file, the same as the
+// paths written in it; an absolute one is taken as given.
+std::string resolve_against(const std::filesystem::path& base, const char* typed)
+{
+    const std::filesystem::path path(typed);
+    return (path.is_absolute() ? path : base / path).string();
 }
 
 // Free orbit the mouse drives, seeded from the script's orbit so the preview
@@ -264,6 +274,31 @@ int main(int argc, char** argv)
         // Held across frames because the fill is applied on release, not on drag.
         float layer_fill = renderer.scene().layer_fill();
 
+        // Colourmaps are edited as text and applied on a button, so the buffers
+        // persist. Seeded from the session file, which stores absolute paths.
+        // The editor drives volume 0; the scene has held a single volume
+        // throughout, so a per-volume UI would be unused machinery.
+        const std::filesystem::path session_dir
+            = std::filesystem::absolute(script_path).parent_path();
+        char ice_path_buffer[512] = {};
+        char rock_path_buffer[512] = {};
+        float ice_trim[2] = {0.0f, 1.0f};
+        float rock_trim[2] = {0.0f, 1.0f};
+        float color_split = 3.0f;
+        std::string color_error;
+        if (renderer.scene().volume_count() > 0) {
+            const ospr::VolumeSpec& spec = renderer.scene().volume_spec(0);
+            std::snprintf(ice_path_buffer, sizeof ice_path_buffer, "%s",
+                spec.ice_colormap_path.c_str());
+            std::snprintf(rock_path_buffer, sizeof rock_path_buffer, "%s",
+                spec.rock_colormap_path.c_str());
+            ice_trim[0] = spec.ice_trim.lo;
+            ice_trim[1] = spec.ice_trim.hi;
+            rock_trim[0] = spec.rock_trim.lo;
+            rock_trim[1] = spec.rock_trim.hi;
+            color_split = spec.split;
+        }
+
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
             ImGui_ImplOpenGL3_NewFrame();
@@ -471,6 +506,39 @@ int main(int argc, char** argv)
             }
             ImGui::Text("%d keyframes -> %d frames", keyframe_count, last_frame + 1);
             ImGui::End();
+
+            if (renderer.scene().volume_count() > 0) {
+                ImGui::SetNextWindowSize(ImVec2(440, 0), ImGuiCond_FirstUseEver);
+                ImGui::Begin("color");
+                ImGui::TextUnformatted("ice map  (layer_id 1 .. split)");
+                ImGui::InputText("ice json", ice_path_buffer, sizeof ice_path_buffer);
+                ImGui::DragFloat2("ice trim", ice_trim, 0.005f, 0.0f, 1.0f, "%.3f");
+                ImGui::Separator();
+                ImGui::TextUnformatted("rock map  (split .. 5)");
+                ImGui::InputText("rock json", rock_path_buffer, sizeof rock_path_buffer);
+                ImGui::DragFloat2("rock trim", rock_trim, 0.005f, 0.0f, 1.0f, "%.3f");
+                ImGui::Separator();
+                ImGui::SliderFloat("split", &color_split, 1.0f, 5.0f, "%.2f");
+                // Applied on the button, not per keystroke: a half-typed path is
+                // a missing file, and a rebuild reloads both colourmaps.
+                if (ImGui::Button("apply colors")) {
+                    try {
+                        renderer.scene().set_colormaps(0,
+                            resolve_against(session_dir, ice_path_buffer),
+                            {ice_trim[0], ice_trim[1]},
+                            resolve_against(session_dir, rock_path_buffer),
+                            {rock_trim[0], rock_trim[1]},
+                            color_split);
+                        color_error.clear();
+                        renderer.reset();
+                    } catch (const std::exception& error) {
+                        color_error = error.what();
+                    }
+                }
+                if (!color_error.empty())
+                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", color_error.c_str());
+                ImGui::End();
+            }
 
             const ospr::Camera camera = (playing || follow_script_camera)
                 ? ospr::camera_for(script, u)

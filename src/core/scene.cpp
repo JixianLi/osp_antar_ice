@@ -378,6 +378,24 @@ ProcessedVolume process_scalar(
     return processed;
 }
 
+// Colour is by layer_id directly: entry i is the layer_id it will be sampled at,
+// mapped through the ice ramp over [1, split] and the rock ramp over [split, 5].
+// No age conversion.
+std::vector<Vec3> build_color_lut(
+    const ColorMap& ice, const ColorMap& rock, float split, Range value_range)
+{
+    std::vector<Vec3> colors(LUT_SIZE);
+    for (int index = 0; index < LUT_SIZE; ++index) {
+        const float layer = lerp(value_range.lo,
+            value_range.hi,
+            static_cast<float>(index) / (LUT_SIZE - 1));
+        colors[index] = layer <= split
+            ? sample(ice.colors, (layer - 1.0f) / std::max(split - 1.0f, 1e-6f))
+            : sample(rock.colors, (layer - split) / std::max(5.0f - split, 1e-6f));
+    }
+    return colors;
+}
+
 } // namespace
 
 void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_scale)
@@ -389,19 +407,8 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_sc
 
     const ColorMap ice = load_colormap(spec.ice_colormap_path, "", LUT_SIZE, spec.ice_trim);
     const ColorMap rock = load_colormap(spec.rock_colormap_path, "", LUT_SIZE, spec.rock_trim);
-
-    // Colour is by layer_id directly: entry i is the layer_id it will be sampled
-    // at, mapped through the ice ramp over [1, split] and the rock ramp over
-    // [split, 5]. No age conversion.
-    std::vector<Vec3> colors(LUT_SIZE);
-    for (int index = 0; index < LUT_SIZE; ++index) {
-        const float layer = lerp(spec.value_range.lo,
-            spec.value_range.hi,
-            static_cast<float>(index) / (LUT_SIZE - 1));
-        colors[index] = layer <= spec.split
-            ? sample(ice.colors, (layer - 1.0f) / std::max(spec.split - 1.0f, 1e-6f))
-            : sample(rock.colors, (layer - spec.split) / std::max(5.0f - spec.split, 1e-6f));
-    }
+    const std::vector<Vec3> colors
+        = build_color_lut(ice, rock, spec.split, spec.value_range);
 
     // The transfer function and the volumetric model must be committed before
     // the Group is: Group::commit() asks each VolumetricModel for its Embree
@@ -653,6 +660,31 @@ void Scene::set_z_scale(float z_scale)
 float Scene::layer_fill() const
 {
     return volumes_.empty() ? 0.0f : volumes_.front().layer_fill;
+}
+
+// Colour lives entirely in the transfer function LUT keyed by layer_id, so a
+// recolour is a 256-entry rebuild and a re-commit, not a volume rebuild. Both
+// maps are loaded before anything is committed, so a bad path throws and leaves
+// the current colours intact.
+void Scene::set_colormaps(std::size_t index, const std::string& ice_path,
+    ColorMapTrim ice_trim, const std::string& rock_path, ColorMapTrim rock_trim, float split)
+{
+    VolumeEntry& entry = volumes_[index];
+    const ColorMap ice = load_colormap(ice_path, "", LUT_SIZE, ice_trim);
+    const ColorMap rock = load_colormap(rock_path, "", LUT_SIZE, rock_trim);
+    const std::vector<Vec3> colors
+        = build_color_lut(ice, rock, split, entry.spec.value_range);
+
+    entry.transfer.setParam("color", ospray::cpp::CopiedData(colors));
+    entry.transfer.commit();
+    entry.model.commit();
+
+    entry.spec.ice_colormap_path = ice_path;
+    entry.spec.ice_trim = ice_trim;
+    entry.spec.rock_colormap_path = rock_path;
+    entry.spec.rock_trim = rock_trim;
+    entry.spec.split = split;
+    world_.commit();
 }
 
 // The fill changes how deep the grid is, and a structuredRegular takes its extent

@@ -50,6 +50,12 @@ public:
     // so this rebuilds the volume rather than re-parameterising it.
     void set_layer_fill(float fraction);
     float layer_fill() const;
+    // Reloads the two colourmaps and rebuilds the LUT. Cheap: colour is by
+    // layer_id through the transfer function, so nothing about the volume moves.
+    // Throws (leaving the current colours) if either file is missing or invalid.
+    void set_colormaps(std::size_t index, const std::string& ice_path,
+        ColorMapTrim ice_trim, const std::string& rock_path, ColorMapTrim rock_trim,
+        float split);
 
     std::size_t volume_count() const { return volumes_.size(); }
     std::size_t surface_count() const { return surfaces_.size(); }
