@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <vector>
 
 #include <ospray/ospray_cpp.h>
@@ -10,6 +11,9 @@
 #include "ospr/vtk_xml.h"
 
 namespace ospr {
+
+// The five isochrone surfaces the volume is coloured by: L1, L5, L7, Basal, Bed.
+inline constexpr int LAYER_COUNT = 5;
 
 struct Bounds
 {
@@ -56,6 +60,10 @@ public:
     void set_colormaps(std::size_t index, const std::string& ice_path,
         ColorMapTrim ice_trim, const std::string& rock_path, ColorMapTrim rock_trim,
         float split);
+    // Alternative to the ramps: paint each layer a single colour, keyed by
+    // layer_id rounded to the nearest surface, so all five colours appear and
+    // boundaries fall at the midpoints between isochrones. Same LUT-only cost.
+    void set_flat_colors(std::size_t index, const std::array<Vec3, LAYER_COUNT>& layer_colors);
 
     std::size_t volume_count() const { return volumes_.size(); }
     std::size_t surface_count() const { return surfaces_.size(); }

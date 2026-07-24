@@ -1,6 +1,7 @@
 #include "ospr/scene.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
@@ -396,6 +397,25 @@ std::vector<Vec3> build_color_lut(
     return colors;
 }
 
+// Flat mode: one colour per layer instead of a ramp. Entry i is coloured by the
+// layer_id it samples, rounded to the nearest surface (1..5), so each colour owns
+// the material within half a layer of its surface and the boundaries fall at the
+// midpoints. All five appear even though the data stops short of 5 at voxel
+// centres, because 4.5..5 still rounds to 5.
+std::vector<Vec3> build_flat_lut(
+    const std::array<Vec3, LAYER_COUNT>& layer_colors, Range value_range)
+{
+    std::vector<Vec3> colors(LUT_SIZE);
+    for (int index = 0; index < LUT_SIZE; ++index) {
+        const float value = lerp(value_range.lo,
+            value_range.hi,
+            static_cast<float>(index) / (LUT_SIZE - 1));
+        const int layer = std::clamp(static_cast<int>(std::lround(value)), 1, LAYER_COUNT);
+        colors[index] = layer_colors[layer - 1];
+    }
+    return colors;
+}
+
 } // namespace
 
 void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_scale)
@@ -684,6 +704,17 @@ void Scene::set_colormaps(std::size_t index, const std::string& ice_path,
     entry.spec.rock_colormap_path = rock_path;
     entry.spec.rock_trim = rock_trim;
     entry.spec.split = split;
+    world_.commit();
+}
+
+void Scene::set_flat_colors(
+    std::size_t index, const std::array<Vec3, LAYER_COUNT>& layer_colors)
+{
+    VolumeEntry& entry = volumes_[index];
+    const std::vector<Vec3> colors = build_flat_lut(layer_colors, entry.spec.value_range);
+    entry.transfer.setParam("color", ospray::cpp::CopiedData(colors));
+    entry.transfer.commit();
+    entry.model.commit();
     world_.commit();
 }
 

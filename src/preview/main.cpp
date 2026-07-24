@@ -4,6 +4,7 @@
 // framing transfers exactly.
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <exception>
@@ -299,6 +300,35 @@ int main(int argc, char** argv)
             color_split = spec.split;
         }
 
+        bool flat_color_mode = false;
+        float flat_colors[ospr::LAYER_COUNT][3] = {{0.75f, 0.87f, 0.95f},
+            {0.30f, 0.70f, 0.80f},
+            {0.40f, 0.70f, 0.35f},
+            {0.85f, 0.55f, 0.25f},
+            {0.35f, 0.22f, 0.15f}};
+        const char* const flat_labels[ospr::LAYER_COUNT] = {"L1", "L5", "L7", "Basal", "Bed"};
+
+        const auto apply_flat_colors = [&]() {
+            std::array<ospr::Vec3, ospr::LAYER_COUNT> colors;
+            for (int layer = 0; layer < ospr::LAYER_COUNT; ++layer)
+                colors[layer]
+                    = {flat_colors[layer][0], flat_colors[layer][1], flat_colors[layer][2]};
+            renderer.scene().set_flat_colors(0, colors);
+            renderer.reset();
+        };
+        const auto apply_colormap = [&]() {
+            try {
+                renderer.scene().set_colormaps(0,
+                    resolve_against(session_dir, ice_path_buffer), {ice_trim[0], ice_trim[1]},
+                    resolve_against(session_dir, rock_path_buffer), {rock_trim[0], rock_trim[1]},
+                    color_split);
+                color_error.clear();
+                renderer.reset();
+            } catch (const std::exception& error) {
+                color_error = error.what();
+            }
+        };
+
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
             ImGui_ImplOpenGL3_NewFrame();
@@ -510,33 +540,37 @@ int main(int argc, char** argv)
             if (renderer.scene().volume_count() > 0) {
                 ImGui::SetNextWindowSize(ImVec2(440, 0), ImGuiCond_FirstUseEver);
                 ImGui::Begin("color");
-                ImGui::TextUnformatted("ice map  (layer_id 1 .. split)");
-                ImGui::InputText("ice json", ice_path_buffer, sizeof ice_path_buffer);
-                ImGui::DragFloat2("ice trim", ice_trim, 0.005f, 0.0f, 1.0f, "%.3f");
-                ImGui::Separator();
-                ImGui::TextUnformatted("rock map  (split .. 5)");
-                ImGui::InputText("rock json", rock_path_buffer, sizeof rock_path_buffer);
-                ImGui::DragFloat2("rock trim", rock_trim, 0.005f, 0.0f, 1.0f, "%.3f");
-                ImGui::Separator();
-                ImGui::SliderFloat("split", &color_split, 1.0f, 5.0f, "%.2f");
-                // Applied on the button, not per keystroke: a half-typed path is
-                // a missing file, and a rebuild reloads both colourmaps.
-                if (ImGui::Button("apply colors")) {
-                    try {
-                        renderer.scene().set_colormaps(0,
-                            resolve_against(session_dir, ice_path_buffer),
-                            {ice_trim[0], ice_trim[1]},
-                            resolve_against(session_dir, rock_path_buffer),
-                            {rock_trim[0], rock_trim[1]},
-                            color_split);
-                        color_error.clear();
-                        renderer.reset();
-                    } catch (const std::exception& error) {
-                        color_error = error.what();
-                    }
+                if (ImGui::Checkbox("flat colors (one per layer)", &flat_color_mode)) {
+                    if (flat_color_mode)
+                        apply_flat_colors();
+                    else
+                        apply_colormap();
                 }
-                if (!color_error.empty())
-                    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", color_error.c_str());
+                ImGui::Separator();
+                if (flat_color_mode) {
+                    bool changed = false;
+                    for (int layer = 0; layer < ospr::LAYER_COUNT; ++layer)
+                        changed |= ImGui::ColorEdit3(flat_labels[layer], flat_colors[layer]);
+                    if (changed)
+                        apply_flat_colors();
+                } else {
+                    ImGui::TextUnformatted("ice map  (layer_id 1 .. split)");
+                    ImGui::InputText("ice json", ice_path_buffer, sizeof ice_path_buffer);
+                    ImGui::DragFloat2("ice trim", ice_trim, 0.005f, 0.0f, 1.0f, "%.3f");
+                    ImGui::Separator();
+                    ImGui::TextUnformatted("rock map  (split .. 5)");
+                    ImGui::InputText("rock json", rock_path_buffer, sizeof rock_path_buffer);
+                    ImGui::DragFloat2("rock trim", rock_trim, 0.005f, 0.0f, 1.0f, "%.3f");
+                    ImGui::Separator();
+                    ImGui::SliderFloat("split", &color_split, 1.0f, 5.0f, "%.2f");
+                    // Applied on the button, not per keystroke: a half-typed path
+                    // is a missing file, and a rebuild reloads both colourmaps.
+                    if (ImGui::Button("apply colors"))
+                        apply_colormap();
+                    if (!color_error.empty())
+                        ImGui::TextColored(
+                            ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "%s", color_error.c_str());
+                }
                 ImGui::End();
             }
 
