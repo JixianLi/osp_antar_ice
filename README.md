@@ -121,9 +121,15 @@ apptainer build --fakeroot $SCRATCH/osp_renderer.sif apptainer/osp_renderer.def
 apptainer run-help $SCRATCH/osp_renderer.sif      # full build-and-run sequence
 ```
 
-The image sets `OSPRAY_NUM_THREADS` from `SLURM_CPUS_ON_NODE`, falling back to 4
-so a login-node build cannot saturate the machine. Override per run with
-`--osp:num-threads=N`.
+The image sets a floor of `OSPRAY_NUM_THREADS=4`, enough that a login-node smoke
+test cannot saturate the machine. Size a real render explicitly with
+`--osp:num-threads=N`, as `scripts/osp_render.slurm` does -- the image's
+`%environment` overrides any `OSPRAY_NUM_THREADS` exported on the host, so the
+command-line flag is the only reliable control.
+
+Take `N` from `SLURM_CPUS_ON_NODE`, never from `nproc`: TACC presets
+`OMP_NUM_THREADS=1`, and coreutils `nproc` honors that variable in preference to
+the affinity mask, so it reports 1 on a node where all 128 cores are yours.
 
 ## Layout
 

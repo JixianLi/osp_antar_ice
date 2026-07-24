@@ -73,10 +73,17 @@ EOF
 %environment
     export LC_ALL=C.UTF-8
     export LANG=C.UTF-8
-    # OSPRay otherwise grabs every hardware thread on the node regardless of the
-    # SLURM allocation; SLURM_CPUS_ON_NODE is set inside a job, unset on a login
-    # node, where the fallback keeps a stray build from saturating the machine.
-    export OSPRAY_NUM_THREADS=${SLURM_CPUS_ON_NODE:-4}
+    # A floor, not a policy: OSPRay otherwise grabs every hardware thread on the
+    # node, which is wrong for a login-node smoke test. The caller sizes a real
+    # render with --osp:num-threads=N.
+    #
+    # This block cannot read SLURM_CPUS_ON_NODE or any other host variable.
+    # Apptainer bakes %environment into /.singularity.d/env/90-environment.sh
+    # and evaluates it against the container's own environment; host variables
+    # are merged in afterward and do not override what these scripts set. An
+    # earlier version computed ${SLURM_CPUS_ON_NODE:-4} here and silently always
+    # took the 4.
+    export OSPRAY_NUM_THREADS=${OSPRAY_NUM_THREADS:-4}
 
 %runscript
     exec "$@"
@@ -123,8 +130,16 @@ EOF
     same absolute path it was built at. If you relocate the checkout, reconfigure
     CMake.
 
-    Thread count: %environment sets OSPRAY_NUM_THREADS from SLURM_CPUS_ON_NODE.
-    Override per run with --osp:num-threads=N or by exporting OSPRAY_NUM_THREADS.
+    Thread count: the image only sets a floor of OSPRAY_NUM_THREADS=4, enough to
+    keep a login-node smoke test from saturating the machine. Size a real render
+    with --osp:num-threads=N; see scripts/osp_render.slurm. Exporting
+    OSPRAY_NUM_THREADS on the host does not work -- %environment overrides it --
+    so pass it with `apptainer exec --env` if you need the variable rather than
+    the flag.
+
+    Do not derive N from `nproc` on Lonestar6. TACC presets OMP_NUM_THREADS=1 and
+    coreutils nproc reports that instead of the affinity-mask size; use
+    SLURM_CPUS_ON_NODE.
 
     This image is CPU-only by design. OSPRay's GPU backend is SYCL/Level-Zero and
     supports Intel GPUs only, so Lonestar6's A100 and H100 nodes cannot be used
