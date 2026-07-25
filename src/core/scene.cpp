@@ -97,14 +97,13 @@ void grow(Bounds& bounds, bool& initialised, Vec3 lo, Vec3 hi)
         std::max(bounds.hi.z, hi.z)};
 }
 
-// z_scale is applied here, so bounds and every built object share one convention:
-// exaggerate depth first, then normalise the exaggerated scene.
-Vec3 volume_corner(const ImageData& data, float z_scale, int side)
+// No vertical exaggeration: the data already carries whatever transform it needs,
+// so bounds and every built object treat z exactly like x and y.
+Vec3 volume_corner(const ImageData& data, int side)
 {
     return {static_cast<float>(data.origin[0] + (side ? data.spacing[0] * (data.dims[0] - 1) : 0.0)),
         static_cast<float>(data.origin[1] + (side ? data.spacing[1] * (data.dims[1] - 1) : 0.0)),
-        static_cast<float>(
-            (data.origin[2] + (side ? data.spacing[2] * (data.dims[2] - 1) : 0.0)) * z_scale)};
+        static_cast<float>(data.origin[2] + (side ? data.spacing[2] * (data.dims[2] - 1) : 0.0))};
 }
 
 } // namespace
@@ -126,8 +125,7 @@ Scene::Scene(const Session& session)
         if (data.find(spec.scalar) == nullptr)
             throw std::runtime_error(
                 spec.path + ": no point array named '" + spec.scalar + "'");
-        grow(raw, initialised, volume_corner(data, session.z_scale, 0),
-            volume_corner(data, session.z_scale, 1));
+        grow(raw, initialised, volume_corner(data, 0), volume_corner(data, 1));
         volume_data.push_back(std::move(data));
     }
 
@@ -141,7 +139,7 @@ Scene::Scene(const Session& session)
             std::numeric_limits<float>::infinity()};
         Vec3 hi{-lo.x, -lo.y, -lo.z};
         for (const Vec3& point : grid.points) {
-            const Vec3 scaled{point.x, point.y, point.z * session.z_scale};
+            const Vec3 scaled{point.x, point.y, point.z};
             if (!finite(scaled))
                 continue;
             lo = {std::min(lo.x, scaled.x), std::min(lo.y, scaled.y), std::min(lo.z, scaled.z)};
@@ -159,225 +157,18 @@ Scene::Scene(const Session& session)
     const float longest = std::max(
         {raw.hi.x - raw.lo.x, raw.hi.y - raw.lo.y, raw.hi.z - raw.lo.z});
     scale_ = (initialised && longest > 0.0f) ? 2.0f / longest : 1.0f;
-    z_scale_ = session.z_scale;
     bounds_ = {to_normalized(raw.lo), to_normalized(raw.hi)};
 
     for (std::size_t index = 0; index < session.volumes.size(); ++index)
-        add_volume(volume_data[index], session.volumes[index], session.z_scale);
+        add_volume(volume_data[index], session.volumes[index]);
     for (std::size_t index = 0; index < session.surfaces.size(); ++index)
-        add_surface(surface_data[index], session.surfaces[index], session.z_scale);
+        add_surface(surface_data[index], session.surfaces[index]);
     for (const TetrahedronSpec& tetrahedron : session.tetrahedra)
         add_tetrahedron(tetrahedron);
     build_world(session);
 }
 
 namespace {
-
-std::size_t voxel_index(const int dims[3], int i, int j, int k)
-{
-    return static_cast<std::size_t>(i) + dims[0] * (static_cast<std::size_t>(j) + dims[1] * k);
-}
-
-// k=0 is the grid floor (deepest). Within each i-j column the valid layer_id
-// runs from the bed (lowest k with data) up to the surface; below the bed it is
-// zero. Copy the bed's value down through that empty span so the column bottoms
-// out on solid rock at the floor.
-std::vector<float> fill_base_below_bed(std::vector<float> values, const int dims[3])
-{
-    const int nz = dims[2];
-    for (int j = 0; j < dims[1]; ++j) {
-        for (int i = 0; i < dims[0]; ++i) {
-            int bed = -1;
-            for (int k = 0; k < nz; ++k) {
-                if (values[voxel_index(dims, i, j, k)] > 0.5f) {
-                    bed = k;
-                    break;
-                }
-            }
-            if (bed <= 0)
-                continue;
-            const float rock = values[voxel_index(dims, i, j, bed)];
-            for (int k = 0; k < bed; ++k)
-                values[voxel_index(dims, i, j, k)] = rock;
-        }
-    }
-    return values;
-}
-
-// Linear interpolation of y(x) at query, extrapolating from the two end samples
-// beyond either end. xs must be strictly increasing.
-float interp_extrapolate(
-    float query, const std::vector<float>& xs, const std::vector<float>& ys)
-{
-    const std::size_t last = xs.size() - 1;
-    if (query <= xs[0])
-        return ys[0] + (query - xs[0]) * (ys[1] - ys[0]) / (xs[1] - xs[0]);
-    if (query >= xs[last])
-        return ys[last]
-            + (query - xs[last]) * (ys[last] - ys[last - 1]) / (xs[last] - xs[last - 1]);
-    const std::size_t hi
-        = static_cast<std::size_t>(std::upper_bound(xs.begin(), xs.end(), query) - xs.begin());
-    return lerp(ys[hi - 1], ys[hi], (query - xs[hi - 1]) / (xs[hi] - xs[hi - 1]));
-}
-
-// The five isochrone surfaces of one column, as the fractional voxel heights
-// where layer_id is 1, 2, 3, 4, 5 -- so entry 0 is the top surface and entry 4
-// the bed. layer_id falls with height but reaches neither endpoint at a voxel
-// centre (the true surface and bed lie between samples, typically 1.07 and 4.91),
-// so the two outermost crossings are extrapolated rather than clamped.
-// False if the column holds too little data to interpolate.
-bool column_crossings(
-    const std::vector<float>& values, const int dims[3], int i, int j, float crossing[5])
-{
-    int low = -1;
-    int high = -1;
-    for (int k = 0; k < dims[2]; ++k) {
-        if (values[voxel_index(dims, i, j, k)] > 0.5f) {
-            if (low < 0)
-                low = k;
-            high = k;
-        }
-    }
-    if (low < 0 || high <= low)
-        return false;
-
-    // Ordered by layer_id ascending, repeats dropped, so the interpolation gets a
-    // strictly increasing abscissa even where the profile is locally flat.
-    std::vector<std::pair<float, float>> samples;
-    samples.reserve(static_cast<std::size_t>(high - low + 1));
-    for (int k = low; k <= high; ++k)
-        samples.push_back({values[voxel_index(dims, i, j, k)], static_cast<float>(k)});
-    std::sort(samples.begin(), samples.end(),
-        [](const std::pair<float, float>& a, const std::pair<float, float>& b) {
-            return a.first < b.first;
-        });
-
-    std::vector<float> layer;
-    std::vector<float> height;
-    for (const std::pair<float, float>& sample_point : samples) {
-        if (!layer.empty() && sample_point.first <= layer.back())
-            continue;
-        layer.push_back(sample_point.first);
-        height.push_back(sample_point.second);
-    }
-    if (layer.size() < 2)
-        return false;
-
-    for (int surface = 0; surface < 5; ++surface)
-        crossing[surface] = interp_extrapolate(static_cast<float>(surface + 1), layer, height);
-    return true;
-}
-
-struct ProcessedVolume
-{
-    std::vector<float> values;
-    int nz{0};
-};
-
-// Thickens the four ice bands so the thin isochrones are visible at all. Every
-// surface is translated straight down by the fill accumulated above it, which is
-// a rigid shift -- each surface keeps its shape exactly, unlike a remap toward
-// uniform thickness. The top surface is pinned, so the stack grows downward and
-// the grid gains voxels underneath.
-//
-// fraction sets the target: the thickest of the four bands is raised to
-// fraction * bed relief, and that one absolute depth is added to all four. It
-// follows that nothing happens until fraction exceeds thickest_band / bed_relief
-// (about 0.25 for the Singh data) -- below that the target is shorter than the
-// band that already exists.
-//
-// All of this is in voxels, so the result is independent of z_scale and of the
-// voxel size. Band ratios are deliberately distorted; the depth contours are
-// what carry the true scale.
-ProcessedVolume additive_layer_fill(
-    const std::vector<float>& values, const int dims[3], float fraction)
-{
-    const std::size_t columns = static_cast<std::size_t>(dims[0]) * dims[1];
-    std::vector<float> crossings(columns * 5, 0.0f);
-    std::vector<char> valid(columns, 0);
-
-    double band_total[4] = {0.0, 0.0, 0.0, 0.0};
-    std::size_t band_count = 0;
-    float bed_low = std::numeric_limits<float>::infinity();
-    float bed_high = -std::numeric_limits<float>::infinity();
-
-    for (int j = 0; j < dims[1]; ++j) {
-        for (int i = 0; i < dims[0]; ++i) {
-            float crossing[5];
-            if (!column_crossings(values, dims, i, j, crossing))
-                continue;
-            const std::size_t column = static_cast<std::size_t>(i) + dims[0] * j;
-            valid[column] = 1;
-            for (int surface = 0; surface < 5; ++surface)
-                crossings[column * 5 + surface] = crossing[surface];
-            for (int band = 0; band < 4; ++band)
-                band_total[band] += crossing[band] - crossing[band + 1];
-            ++band_count;
-            bed_low = std::min(bed_low, crossing[4]);
-            bed_high = std::max(bed_high, crossing[4]);
-        }
-    }
-    if (band_count == 0)
-        return {values, dims[2]};
-
-    float thickest = 0.0f;
-    for (int band = 0; band < 4; ++band)
-        thickest = std::max(thickest, static_cast<float>(band_total[band] / band_count));
-
-    const float fill = fraction * (bed_high - bed_low) - thickest;
-    if (fill <= 0.0f)
-        return {values, dims[2]};
-
-    // Room for the bed's total drop plus however far the deepest bed already sits
-    // below the old floor, and one spare voxel so fill_base always has a floor to
-    // write into.
-    const int extra = static_cast<int>(std::ceil(4.0f * fill - bed_low)) + 1;
-    const int filled_nz = dims[2] + extra;
-    const int filled_dims[3] = {dims[0], dims[1], filled_nz};
-
-    std::vector<float> filled(columns * filled_nz, 0.0f);
-    for (int j = 0; j < dims[1]; ++j) {
-        for (int i = 0; i < dims[0]; ++i) {
-            const std::size_t column = static_cast<std::size_t>(i) + dims[0] * j;
-            if (!valid[column])
-                continue;
-            // extra maps an old height onto the taller grid; surface s then drops
-            // by s fills, leaving the top surface (s = 0) where it was.
-            float shifted[5];
-            for (int surface = 0; surface < 5; ++surface)
-                shifted[surface]
-                    = crossings[column * 5 + surface] + extra - surface * fill;
-
-            for (int k = 0; k < filled_nz; ++k) {
-                const float height = static_cast<float>(k);
-                if (height > shifted[0] || height < shifted[4])
-                    continue;
-                int band = 0;
-                while (band < 3 && height < shifted[band + 1])
-                    ++band;
-                const float span = std::max(shifted[band] - shifted[band + 1], 1e-6f);
-                filled[voxel_index(filled_dims, i, j, k)]
-                    = static_cast<float>(band + 1) + (shifted[band] - height) / span;
-            }
-        }
-    }
-    return {std::move(filled), filled_nz};
-}
-
-// Fill the bands first -- it reads the true column and decides how far the grid
-// has to grow -- then extend the bed to the floor of whatever grid came out.
-ProcessedVolume process_scalar(
-    const std::vector<float>& values, const int dims[3], float layer_fill, bool fill_base)
-{
-    ProcessedVolume processed = layer_fill > 0.0f
-        ? additive_layer_fill(values, dims, layer_fill)
-        : ProcessedVolume{values, dims[2]};
-    if (fill_base) {
-        const int filled_dims[3] = {dims[0], dims[1], processed.nz};
-        processed.values = fill_base_below_bed(std::move(processed.values), filled_dims);
-    }
-    return processed;
-}
 
 // One colour per layer. Entry i is coloured by the layer_id it samples, rounded
 // to the nearest surface (1..5), so each colour owns the material within half a
@@ -400,13 +191,9 @@ std::vector<Vec3> build_flat_lut(
 
 } // namespace
 
-void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_scale)
+void Scene::add_volume(const ImageData& data, const VolumeSpec& spec)
 {
     const DataArray* scalar = data.find(spec.scalar);
-    const ProcessedVolume processed
-        = process_scalar(scalar->values, data.dims, spec.layer_fill, spec.fill_base);
-    const int extra = processed.nz - data.dims[2];
-
     const std::vector<Vec3> colors = build_flat_lut(spec.layer_colors, spec.value_range);
 
     // The transfer function and the volumetric model must be committed before
@@ -422,24 +209,19 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_sc
 
     ospray::cpp::Volume volume("structuredRegular");
     volume.setParam("data",
-        ospray::cpp::CopiedData(processed.values.data(),
+        ospray::cpp::CopiedData(scalar->values.data(),
             Vec3ul{static_cast<unsigned long long>(data.dims[0]),
                 static_cast<unsigned long long>(data.dims[1]),
-                static_cast<unsigned long long>(processed.nz)}));
+                static_cast<unsigned long long>(data.dims[2])}));
     // gridOrigin is a point (centre-subtract then scale); gridSpacing is a step
-    // vector (scale only). A voxel step in normalised space is the metre step
-    // times scale_.
-    const Vec3 base_grid_origin = to_normalized({static_cast<float>(data.origin[0]),
-        static_cast<float>(data.origin[1]),
-        static_cast<float>(data.origin[2] * z_scale)});
+    // vector (scale only). No vertical exaggeration: z is treated like x and y,
+    // so the data must carry any transform it needs before it reaches here.
+    const Vec3 grid_origin = to_normalized({static_cast<float>(data.origin[0]),
+        static_cast<float>(data.origin[1]), static_cast<float>(data.origin[2])});
     const Vec3 grid_spacing = Vec3{static_cast<float>(data.spacing[0]),
                                  static_cast<float>(data.spacing[1]),
-                                 static_cast<float>(data.spacing[2] * z_scale)}
+                                 static_cast<float>(data.spacing[2])}
         * scale_;
-    // The layer fill grows the grid downward: the top stays put and the extra
-    // voxels appear below the old floor, so the origin drops by that many steps.
-    Vec3 grid_origin = base_grid_origin;
-    grid_origin.z -= extra * grid_spacing.z;
     volume.setParam("gridOrigin", grid_origin);
     volume.setParam("gridSpacing", grid_spacing);
     volume.commit();
@@ -449,19 +231,11 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec, float z_sc
     model.setParam("densityScale", spec.density_scale);
     model.commit();
 
-    VolumeEntry entry{spec, transfer, model, volume, grid_origin, grid_spacing};
-    entry.base_grid_origin = base_grid_origin;
-    entry.source_scalar = scalar->values;
-    entry.source_dims[0] = data.dims[0];
-    entry.source_dims[1] = data.dims[1];
-    entry.source_dims[2] = data.dims[2];
-    entry.fill_base = spec.fill_base;
-    entry.layer_fill = spec.layer_fill;
     bounds_.lo.z = std::min(bounds_.lo.z, grid_origin.z);
-    volumes_.push_back(std::move(entry));
+    volumes_.push_back(VolumeEntry{spec, transfer, model, volume});
 }
 
-void Scene::add_surface(const StructuredGrid& grid, const SurfaceSpec& spec, float z_scale)
+void Scene::add_surface(const StructuredGrid& grid, const SurfaceSpec& spec)
 {
     const DataArray* field = grid.find(spec.color_by);
     if (field == nullptr)
@@ -475,7 +249,7 @@ void Scene::add_surface(const StructuredGrid& grid, const SurfaceSpec& spec, flo
     const float span = std::max(spec.value_range.hi - spec.value_range.lo, 1e-6f);
     for (std::size_t index = 0; index < grid.points.size(); ++index) {
         const Vec3& point = grid.points[index];
-        positions[index] = to_normalized({point.x, point.y, point.z * z_scale});
+        positions[index] = to_normalized({point.x, point.y, point.z});
         const Vec3 color
             = sample(colormap.colors, (field->values[index] - spec.value_range.lo) / span);
         colors[index] = {color.x, color.y, color.z, 1.0f};
@@ -519,7 +293,7 @@ void Scene::add_surface(const StructuredGrid& grid, const SurfaceSpec& spec, flo
     model.setParam("material", material);
     model.commit();
 
-    surfaces_.push_back({spec, material, model, mesh, field->values, colormap, positions});
+    surfaces_.push_back({spec, material, model, mesh, field->values, colormap});
 }
 
 // Regular tetrahedron on alternating corners of the cube, one colour per vertex
@@ -554,7 +328,7 @@ void Scene::add_tetrahedron(const TetrahedronSpec& spec)
 
     SurfaceSpec spec_placeholder;
     spec_placeholder.layer = -1.0f;
-    surfaces_.push_back({spec_placeholder, material, model, mesh, {}, ColorMap{}, positions});
+    surfaces_.push_back({spec_placeholder, material, model, mesh, {}, ColorMap{}});
 }
 
 void Scene::build_world(const Session& session)
@@ -623,44 +397,6 @@ void Scene::set_lights(const std::vector<LightSpec>& specs)
     world_.commit();
 }
 
-void Scene::set_z_scale(float z_scale)
-{
-    if (z_scale == z_scale_ || z_scale_ <= 0.0f)
-        return;
-    const float ratio = z_scale / z_scale_;
-    z_scale_ = z_scale;
-
-    for (VolumeEntry& entry : volumes_) {
-        entry.base_grid_origin.z *= ratio;
-        entry.grid_origin.z *= ratio;
-        entry.grid_spacing.z *= ratio;
-        entry.volume.setParam("gridOrigin", entry.grid_origin);
-        entry.volume.setParam("gridSpacing", entry.grid_spacing);
-        entry.volume.commit();
-        entry.model.commit();
-    }
-
-    for (SurfaceEntry& entry : surfaces_) {
-        for (Vec3& point : entry.positions)
-            point.z *= ratio;
-        entry.mesh.setParam("vertex.position", ospray::cpp::CopiedData(entry.positions));
-        entry.mesh.commit();
-        entry.model.commit();
-    }
-
-    bounds_.lo.z *= ratio;
-    bounds_.hi.z *= ratio;
-
-    group_.commit();
-    instance_.commit();
-    world_.commit();
-}
-
-float Scene::layer_fill() const
-{
-    return volumes_.empty() ? 0.0f : volumes_.front().layer_fill;
-}
-
 // Colour lives entirely in the transfer function LUT keyed by layer_id, so a
 // recolour is a 256-entry rebuild and a re-commit, not a volume rebuild.
 void Scene::set_flat_colors(
@@ -672,52 +408,6 @@ void Scene::set_flat_colors(
     entry.transfer.commit();
     entry.model.commit();
     entry.spec.layer_colors = layer_colors;
-    world_.commit();
-}
-
-// The fill changes how deep the grid is, and a structuredRegular takes its extent
-// from the dimensions of its data array, which cannot be changed under a
-// committed volume. So the volume and its model are rebuilt and the group is
-// re-pointed at them; the transfer function survives, which is what holds the
-// colours and the current peel.
-void Scene::set_layer_fill(float fraction)
-{
-    for (VolumeEntry& entry : volumes_) {
-        entry.layer_fill = fraction;
-        const ProcessedVolume processed = process_scalar(
-            entry.source_scalar, entry.source_dims, fraction, entry.fill_base);
-        entry.grid_origin = entry.base_grid_origin;
-        entry.grid_origin.z
-            -= (processed.nz - entry.source_dims[2]) * entry.grid_spacing.z;
-
-        ospray::cpp::Volume volume("structuredRegular");
-        volume.setParam("data",
-            ospray::cpp::CopiedData(processed.values.data(),
-                Vec3ul{static_cast<unsigned long long>(entry.source_dims[0]),
-                    static_cast<unsigned long long>(entry.source_dims[1]),
-                    static_cast<unsigned long long>(processed.nz)}));
-        volume.setParam("gridOrigin", entry.grid_origin);
-        volume.setParam("gridSpacing", entry.grid_spacing);
-        volume.commit();
-
-        ospray::cpp::VolumetricModel model(volume);
-        model.setParam("transferFunction", entry.transfer);
-        model.setParam("densityScale", entry.spec.density_scale);
-        model.commit();
-
-        entry.volume = volume;
-        entry.model = model;
-        // Only ever grows: a fill that shrinks leaves the bounds loose, which
-        // costs nothing but a slightly wide "frame scene".
-        bounds_.lo.z = std::min(bounds_.lo.z, entry.grid_origin.z);
-    }
-
-    std::vector<ospray::cpp::VolumetricModel> models;
-    for (const VolumeEntry& entry : volumes_)
-        models.push_back(entry.model);
-    group_.setParam("volume", ospray::cpp::CopiedData(models));
-    group_.commit();
-    instance_.commit();
     world_.commit();
 }
 

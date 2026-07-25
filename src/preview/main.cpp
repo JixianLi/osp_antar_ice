@@ -276,8 +276,6 @@ int main(int argc, char** argv)
         int play_frame = 0;
         bool follow_script_camera = true;
         bool dirty = true;
-        // Held across frames because the fill is applied on release, not on drag.
-        float layer_fill = renderer.scene().layer_fill();
 
         // Flat per-layer colour drives volume 0; the scene has held a single
         // volume throughout, so a per-volume UI would be unused machinery.
@@ -526,24 +524,6 @@ int main(int argc, char** argv)
             }
 
             if (ImGui::CollapsingHeader("volume", ImGuiTreeNodeFlags_DefaultOpen)) {
-                float z_scale = renderer.scene().z_scale();
-                if (ImGui::SliderFloat("z scale", &z_scale, 25.0f, 50.0f, "%.1f")) {
-                    renderer.scene().set_z_scale(z_scale);
-                    renderer.reset();
-                }
-                // Applied on release: unlike the other knobs this one re-derives
-                // every column and rebuilds the volume, far too slow to run on
-                // each frame of a drag.
-                ImGui::SliderFloat("layer fill", &layer_fill, 0.0f, 0.6f, "%.2f");
-                if (ImGui::IsItemDeactivatedAfterEdit()) {
-                    renderer.scene().set_layer_fill(layer_fill);
-                    renderer.reset();
-                }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "Thickest ice band reaches this fraction of the bed relief.\n"
-                        "Below about 0.25 the target is shorter than that band\n"
-                        "already is, so nothing changes.");
                 for (std::size_t index = 0; index < renderer.scene().volume_count();
                      ++index) {
                     ImGui::PushID(static_cast<int>(1000 + index));
@@ -557,10 +537,10 @@ int main(int argc, char** argv)
                     }
                     ImGui::PopID();
                 }
-                if (renderer.scene().volume_count() > 0 && ImGui::Button("save volume"))
+                if (renderer.scene().volume_count() > 0 && ImGui::Button("save density"))
                     guard_save([&]() {
-                        ospr::save_volume(script_path, renderer.scene().z_scale(), layer_fill,
-                            renderer.scene().volume_spec(0).density_scale);
+                        ospr::save_density(
+                            script_path, renderer.scene().volume_spec(0).density_scale);
                     });
             }
 

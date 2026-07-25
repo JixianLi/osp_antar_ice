@@ -98,10 +98,6 @@ VolumeSpec read_volume(
     for (int layer = 0; layer < LAYER_COUNT; ++layer)
         volume.layer_colors[layer] = read_vec3(
             layers[layer], where + ".color.layers[" + std::to_string(layer) + "]");
-    if (node.contains("layer_fill"))
-        volume.layer_fill = node.at("layer_fill").get<float>();
-    if (node.contains("fill_base"))
-        volume.fill_base = node.at("fill_base").get<bool>();
     return volume;
 }
 
@@ -169,9 +165,6 @@ Script load_script(const std::string& path)
     if (!root.contains("session"))
         throw std::runtime_error(path + ": missing 'session'");
     const json& session = root.at("session");
-
-    if (session.contains("z_scale"))
-        script.session.z_scale = session.at("z_scale").get<float>();
 
     if (session.contains("renderer")) {
         const json& renderer = session.at("renderer");
@@ -437,14 +430,10 @@ void save_lights(const std::string& path, const std::vector<LightSpec>& lights)
     write_document(path, document);
 }
 
-void save_volume(const std::string& path, float z_scale, float layer_fill, float density_scale)
+void save_density(const std::string& path, float density_scale)
 {
     ordered_json document = read_document(path);
-    ordered_json& session = session_of(document, path);
-    session["z_scale"] = clean(z_scale);
-    ordered_json& volume = first_volume(session, path);
-    volume["layer_fill"] = clean(layer_fill);
-    volume["density_scale"] = clean(density_scale);
+    first_volume(session_of(document, path), path)["density_scale"] = clean(density_scale);
     write_document(path, document);
 }
 

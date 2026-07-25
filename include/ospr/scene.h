@@ -41,16 +41,6 @@ public:
     void set_lights(const std::vector<LightSpec>& lights);
     void set_density_scale(std::size_t index, float density_scale);
     void set_surface_range(std::size_t index, Range range);
-    // Because the scene is normalised on its longest side (x, unaffected by
-    // z_scale), a z_scale change is a uniform scaling of every z about the
-    // origin -- no re-read, no re-normalise, just multiply z by the ratio.
-    void set_z_scale(float z_scale);
-    float z_scale() const { return z_scale_; }
-    // Re-derives the volume scalar from the retained source, so band thickness is
-    // tunable live. Costlier than the other setters: the fill deepens the grid,
-    // so this rebuilds the volume rather than re-parameterising it.
-    void set_layer_fill(float fraction);
-    float layer_fill() const;
     // Paints each layer a single colour, keyed by layer_id rounded to the
     // nearest surface, so all five colours appear and boundaries fall at the
     // midpoints between isochrones. Cheap: colour is by layer_id through the
@@ -73,21 +63,6 @@ private:
         ospray::cpp::TransferFunction transfer;
         ospray::cpp::VolumetricModel model;
         ospray::cpp::Volume volume;
-        // Current normalised grid placement, so set_z_scale can rescale z
-        // without recomputing from the source header.
-        Vec3 grid_origin;
-        Vec3 grid_spacing;
-        // Where the origin sits with no layer fill. set_layer_fill works from
-        // this rather than from grid_origin, which would drift as the fill is
-        // dragged back and forth.
-        Vec3 base_grid_origin;
-        // Source scalar and processing options, retained so layer_fill can
-        // re-derive the field live without re-reading the .vti. These are the
-        // dimensions of the source, not of the current (deepened) grid.
-        std::vector<float> source_scalar;
-        int source_dims[3]{0, 0, 0};
-        bool fill_base{false};
-        float layer_fill{0.0f};
     };
 
     struct SurfaceEntry
@@ -100,13 +75,10 @@ private:
         ospray::cpp::Geometry mesh;
         std::vector<float> field;
         ColorMap colormap;
-        // Retained so a z_scale change can rescale z and re-upload positions
-        // without re-reading the .vts.
-        std::vector<Vec3> positions;
     };
 
-    void add_volume(const ImageData& data, const VolumeSpec& spec, float z_scale);
-    void add_surface(const StructuredGrid& grid, const SurfaceSpec& spec, float z_scale);
+    void add_volume(const ImageData& data, const VolumeSpec& spec);
+    void add_surface(const StructuredGrid& grid, const SurfaceSpec& spec);
     void add_tetrahedron(const TetrahedronSpec& spec);
     void build_world(const Session& session);
 
@@ -124,7 +96,6 @@ private:
     Bounds bounds_;
     Vec3 center_;
     float scale_{1.0f};
-    float z_scale_{1.0f};
 };
 
 } // namespace ospr

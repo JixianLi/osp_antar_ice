@@ -1,6 +1,5 @@
 {
   "session": {
-    "z_scale": 35,
     "renderer": {
       "type": "pathtracer",
       "spp": 32,
@@ -23,7 +22,7 @@
     "objects": [
       {
         "type": "volume",
-        "path": "../data/volume_bm5000_s1000_m10000_t0.35_g2000_p50.vti",
+        "path": "../data/volume_bm5000_s1000_m10000_t0.35_g2000_p50_render_crop.vti",
         "scalar": "layer_id",
         "range": [
           0,
@@ -58,9 +57,7 @@
               0.129412
             ]
           ]
-        },
-        "fill_base": true,
-        "layer_fill": 0.35
+        }
       }
     ],
     "lights": [

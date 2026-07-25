@@ -30,17 +30,6 @@ struct VolumeSpec
         {0.30f, 0.70f, 0.80f}, {0.40f, 0.70f, 0.35f}, {0.85f, 0.55f, 0.25f},
         {0.35f, 0.22f, 0.15f}}};
     float density_scale{1.0f};
-    // Extend the bed (deepest valid layer_id) straight down to the grid floor,
-    // so the model sits on a solid rock base instead of a thin bed surface.
-    bool fill_base{false};
-    // Adds one constant depth to each of the four ice bands so the thin
-    // isochrones are visible, sized so the thickest band reaches layer_fill
-    // times the bed's relief. Every surface keeps its shape (it is a rigid
-    // shift) but band ratios are distorted, and the grid deepens to fit.
-    // 0 disables it, and so does anything below thickest_band / bed_relief
-    // (about 0.25 for the Singh data), where the target is already shorter than
-    // the thickest band.
-    float layer_fill{0.0f};
 };
 
 struct SurfaceSpec
@@ -109,7 +98,6 @@ struct OrbitSpec
 
 struct Session
 {
-    float z_scale{35.0f};
     RendererSpec renderer;
     std::vector<VolumeSpec> volumes;
     std::vector<SurfaceSpec> surfaces;
@@ -151,7 +139,7 @@ Script load_script(const std::string& path);
 void save_quality(const std::string& path, int spp, int shadow_samples, int ao_samples);
 void save_background(const std::string& path, Vec3 top, Vec3 bottom);
 void save_lights(const std::string& path, const std::vector<LightSpec>& lights);
-void save_volume(const std::string& path, float z_scale, float layer_fill, float density_scale);
+void save_density(const std::string& path, float density_scale);
 void save_colors(const std::string& path, const std::array<Vec3, LAYER_COUNT>& layer_colors);
 void save_frames_between(const std::string& path, int frames_between);
 void save_opacity(const std::string& path, int keyframe_index, const OpacityCurve& opacity);
