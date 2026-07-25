@@ -126,12 +126,13 @@ void FrameRenderer::set_background(Vec3 top, Vec3 bottom)
 {
     // A tall, 1-wide backplate: OSPRay samples it in normalised screen coords,
     // so a single column is a pure vertical gradient. Row 0 is the bottom of the
-    // frame. HSV keeps a coloured gradient from desaturating at the midpoint.
+    // frame. Interpolated straight in RGB, so the gradient is a linear ramp
+    // between the two colours with no hue travel.
     constexpr int STEPS = 256;
     std::vector<Vec3> column(STEPS);
     for (int index = 0; index < STEPS; ++index) {
         const float t = static_cast<float>(index) / (STEPS - 1);
-        column[index] = lerp_hsv(bottom, top, t);
+        column[index] = bottom + (top - bottom) * t;
     }
 
     ospray::cpp::Texture backplate("texture2d");

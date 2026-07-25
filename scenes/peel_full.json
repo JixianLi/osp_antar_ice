@@ -22,7 +22,7 @@
     "objects": [
       {
         "type": "volume",
-        "path": "../data/volume_bm5000_s1000_m10000_t0.35_g2000_p50_render_crop.vti",
+        "path": "../data/volume_bm5000_s1000_m10000_t0.35_g2000_p50_render_full.vti",
         "scalar": "layer_id",
         "range": [
           0,
