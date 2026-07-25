@@ -104,10 +104,10 @@
   },
   "keyframes": [
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
@@ -125,10 +125,10 @@
       "ease": "linear"
     },
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
@@ -150,21 +150,21 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
           0.0
         ],
         [
-          0.78125,
+          0.921875,
           0.0
         ],
         [
-          1.618,
+          1.640625,
           1.0
         ],
         [
@@ -175,10 +175,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
@@ -200,10 +200,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
@@ -225,10 +225,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
@@ -250,10 +250,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
@@ -275,10 +275,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
@@ -300,10 +300,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
@@ -325,10 +325,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
@@ -350,10 +350,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
@@ -375,10 +375,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
@@ -400,10 +400,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -384.200043,
-      "elevation": 16.599997,
+      "azimuth": -463.099792,
+      "elevation": 26.5,
       "fov": 35.0,
-      "radius": 4.284276,
+      "radius": 3.362289,
       "opacity": [
         [
           0.0,
