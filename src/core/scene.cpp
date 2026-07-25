@@ -82,11 +82,11 @@ void frame_scene(OrbitSpec& orbit, const Bounds& bounds, float aspect)
 
 namespace {
 
-void grow(Bounds& bounds, bool& initialised, Vec3 lo, Vec3 hi)
+void grow(Bounds& bounds, bool& initialized, Vec3 lo, Vec3 hi)
 {
-    if (!initialised) {
+    if (!initialized) {
         bounds = {lo, hi};
-        initialised = true;
+        initialized = true;
         return;
     }
     bounds.lo = {std::min(bounds.lo.x, lo.x),
@@ -111,21 +111,21 @@ Vec3 volume_corner(const ImageData& data, int side)
 Scene::Scene(const Session& session)
 {
     // Load everything first so the combined bounds are known before any object
-    // is built: the normalisation depends on the whole scene's extent.
+    // is built: the normalization depends on the whole scene's extent.
     std::vector<ImageData> volume_data;
     std::vector<StructuredGrid> surface_data;
     volume_data.reserve(session.volumes.size());
     surface_data.reserve(session.surfaces.size());
 
     Bounds raw;
-    bool initialised = false;
+    bool initialized = false;
 
     for (const VolumeSpec& spec : session.volumes) {
         ImageData data = read_vti(spec.path);
         if (data.find(spec.scalar) == nullptr)
             throw std::runtime_error(
                 spec.path + ": no point array named '" + spec.scalar + "'");
-        grow(raw, initialised, volume_corner(data, 0), volume_corner(data, 1));
+        grow(raw, initialized, volume_corner(data, 0), volume_corner(data, 1));
         volume_data.push_back(std::move(data));
     }
 
@@ -145,18 +145,18 @@ Scene::Scene(const Session& session)
             lo = {std::min(lo.x, scaled.x), std::min(lo.y, scaled.y), std::min(lo.z, scaled.z)};
             hi = {std::max(hi.x, scaled.x), std::max(hi.y, scaled.y), std::max(hi.z, scaled.z)};
         }
-        grow(raw, initialised, lo, hi);
+        grow(raw, initialized, lo, hi);
         surface_data.push_back(std::move(grid));
     }
 
     for (const TetrahedronSpec& spec : session.tetrahedra)
-        grow(raw, initialised, {-spec.scale, -spec.scale, -spec.scale},
+        grow(raw, initialized, {-spec.scale, -spec.scale, -spec.scale},
             {spec.scale, spec.scale, spec.scale});
 
-    center_ = initialised ? raw.center() : Vec3{};
+    center_ = initialized ? raw.center() : Vec3{};
     const float longest = std::max(
         {raw.hi.x - raw.lo.x, raw.hi.y - raw.lo.y, raw.hi.z - raw.lo.z});
-    scale_ = (initialised && longest > 0.0f) ? 2.0f / longest : 1.0f;
+    scale_ = (initialized && longest > 0.0f) ? 2.0f / longest : 1.0f;
     bounds_ = {to_normalized(raw.lo), to_normalized(raw.hi)};
 
     for (std::size_t index = 0; index < session.volumes.size(); ++index)
@@ -170,10 +170,10 @@ Scene::Scene(const Session& session)
 
 namespace {
 
-// One colour per layer. Entry i is coloured by the layer_id it samples, rounded
-// to the nearest surface (1..5), so each colour owns the material within half a
+// One color per layer. Entry i is colored by the layer_id it samples, rounded
+// to the nearest surface (1..5), so each color owns the material within half a
 // layer of its surface and the boundaries fall at the midpoints. All five appear
-// even though the data stops short of 5 at voxel centres, because 4.5..5 still
+// even though the data stops short of 5 at voxel centers, because 4.5..5 still
 // rounds to 5.
 std::vector<Vec3> build_flat_lut(
     const std::array<Vec3, LAYER_COUNT>& layer_colors, Range value_range)
@@ -213,7 +213,7 @@ void Scene::add_volume(const ImageData& data, const VolumeSpec& spec)
             Vec3ul{static_cast<unsigned long long>(data.dims[0]),
                 static_cast<unsigned long long>(data.dims[1]),
                 static_cast<unsigned long long>(data.dims[2])}));
-    // gridOrigin is a point (centre-subtract then scale); gridSpacing is a step
+    // gridOrigin is a point (center-subtract then scale); gridSpacing is a step
     // vector (scale only). No vertical exaggeration: z is treated like x and y,
     // so the data must carry any transform it needs before it reaches here.
     const Vec3 grid_origin = to_normalized({static_cast<float>(data.origin[0]),
@@ -296,7 +296,7 @@ void Scene::add_surface(const StructuredGrid& grid, const SurfaceSpec& spec)
     surfaces_.push_back({spec, material, model, mesh, field->values, colormap});
 }
 
-// Regular tetrahedron on alternating corners of the cube, one colour per vertex
+// Regular tetrahedron on alternating corners of the cube, one color per vertex
 // so the result shows barycentric interpolation. Windings are counter-clockwise
 // seen from outside.
 void Scene::add_tetrahedron(const TetrahedronSpec& spec)
@@ -331,21 +331,32 @@ void Scene::add_tetrahedron(const TetrahedronSpec& spec)
     surfaces_.push_back({spec_placeholder, material, model, mesh, {}, ColorMap{}});
 }
 
+namespace {
+
+// distant is OSPRay's directional light; sunSky also takes a direction. Off
+// lights never reach here -- build_world and set_lights skip them.
+ospray::cpp::Light make_light(const LightSpec& spec)
+{
+    ospray::cpp::Light light(spec.type);
+    light.setParam("color", spec.color);
+    light.setParam("intensity", spec.intensity);
+    light.setParam("visible", spec.visible);
+    if (spec.type == "distant" || spec.type == "sunSky") {
+        light.setParam("direction", spec.direction);
+        if (spec.type == "distant")
+            light.setParam("angularDiameter", spec.angular_diameter);
+    }
+    light.commit();
+    return light;
+}
+
+} // namespace
+
 void Scene::build_world(const Session& session)
 {
-    for (const LightSpec& spec : session.lights) {
-        ospray::cpp::Light light(spec.type);
-        light.setParam("color", spec.color);
-        light.setParam("intensity", spec.intensity);
-        light.setParam("visible", spec.visible);
-        if (spec.type == "distant" || spec.type == "sunSky") {
-            light.setParam("direction", spec.direction);
-            if (spec.type == "distant")
-                light.setParam("angularDiameter", spec.angular_diameter);
-        }
-        light.commit();
-        lights_.push_back(light);
-    }
+    for (const LightSpec& spec : session.lights)
+        if (spec.enabled)
+            lights_.push_back(make_light(spec));
 
     ospray::cpp::Group group;
     group_ = group;
@@ -377,19 +388,9 @@ void Scene::build_world(const Session& session)
 void Scene::set_lights(const std::vector<LightSpec>& specs)
 {
     lights_.clear();
-    for (const LightSpec& spec : specs) {
-        ospray::cpp::Light light(spec.type);
-        light.setParam("color", spec.color);
-        light.setParam("intensity", spec.intensity);
-        light.setParam("visible", spec.visible);
-        if (spec.type == "distant" || spec.type == "sunSky") {
-            light.setParam("direction", spec.direction);
-            if (spec.type == "distant")
-                light.setParam("angularDiameter", spec.angular_diameter);
-        }
-        light.commit();
-        lights_.push_back(light);
-    }
+    for (const LightSpec& spec : specs)
+        if (spec.enabled)
+            lights_.push_back(make_light(spec));
     if (lights_.empty())
         world_.removeParam("light");
     else
@@ -397,8 +398,8 @@ void Scene::set_lights(const std::vector<LightSpec>& specs)
     world_.commit();
 }
 
-// Colour lives entirely in the transfer function LUT keyed by layer_id, so a
-// recolour is a 256-entry rebuild and a re-commit, not a volume rebuild.
+// Color lives entirely in the transfer function LUT keyed by layer_id, so a
+// recolor is a 256-entry rebuild and a re-commit, not a volume rebuild.
 void Scene::set_flat_colors(
     std::size_t index, const std::array<Vec3, LAYER_COUNT>& layer_colors)
 {

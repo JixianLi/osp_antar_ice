@@ -10,7 +10,7 @@
 
 namespace ospr {
 
-// The five isochrone surfaces the volume is coloured by: L1, L5, L7, Basal, Bed.
+// The five isochrone surfaces the volume is colored by: L1, L5, L7, Basal, Bed.
 inline constexpr int LAYER_COUNT = 5;
 
 struct Range
@@ -24,7 +24,7 @@ struct VolumeSpec
     std::string path;
     std::string scalar{"layer_id"};
     Range value_range{0.0f, 5.0f};
-    // Colour is by layer_id directly: one flat colour per isochrone surface,
+    // Color is by layer_id directly: one flat color per isochrone surface,
     // keyed by layer_id rounded to the nearest of the five (see build_flat_lut).
     std::array<Vec3, LAYER_COUNT> layer_colors{{{0.75f, 0.87f, 0.95f},
         {0.30f, 0.70f, 0.80f}, {0.40f, 0.70f, 0.35f}, {0.85f, 0.55f, 0.25f},
@@ -62,6 +62,8 @@ struct LightSpec
     // OSPRay lights are visible to camera rays by default, so an ambient light
     // paints itself over backgroundColor. Fill light almost never wants that.
     bool visible{true};
+    // Off lights are simply left out of the world's light list.
+    bool enabled{true};
 };
 
 struct RendererSpec
@@ -76,14 +78,14 @@ struct RendererSpec
     // Ambient-occlusion rays, scivis only. Each renderer ignores the other's
     // count, so one session file can carry both.
     int ao_samples{2};
-    // Vertical backplate gradient, interpolated in HSV. top is the top of the
+    // Vertical backplate gradient, a straight RGB ramp. top is the top of the
     // frame, bottom the bottom; equal values give a flat background.
     Vec3 background_top{0.0f, 0.0f, 0.0f};
     Vec3 background_bottom{0.47f, 0.47f, 0.47f};
 };
 
 // Orbit fitting for the preview's free camera only; the timeline's camera comes
-// from the keyframes. frame_scene fills centre and radius from the scene bounds.
+// from the keyframes. frame_scene fills center and radius from the scene bounds.
 struct OrbitSpec
 {
     bool has_center{false};
@@ -132,9 +134,9 @@ Script load_script(const std::string& path);
 
 // Section writers for the preview's per-section save buttons. Each re-reads the
 // file, replaces only the fields it names, and writes it back with 2-space
-// indent; every other value is preserved (formatting may normalise). They throw
+// indent; every other value is preserved (formatting may normalize). They throw
 // std::runtime_error if the file is missing, malformed, or lacks the target
-// structure. The volume knobs address the first volume object; the colour save
+// structure. The volume knobs address the first volume object; the color save
 // too, since the scene has carried one volume throughout.
 void save_quality(const std::string& path, int spp, int shadow_samples, int ao_samples);
 void save_background(const std::string& path, Vec3 top, Vec3 bottom);
@@ -155,7 +157,7 @@ float frame_to_param(const Script& script, int frame_index);
 // The output frame index that lands exactly on keyframe k.
 int keyframe_frame(const Script& script, int keyframe_index);
 
-// The interpolated camera at keyframe parameter u. The scene is normalised
+// The interpolated camera at keyframe parameter u. The scene is normalized
 // about the origin, so the orbit target is (0, 0, 0).
 Camera camera_for(const Script& script, float u);
 

@@ -27,7 +27,7 @@ struct ColorMapTrim
 
 // Reads a ParaView colormap and resamples it to `resolution` entries. Dispatches
 // on extension: .xml is <ColorMaps><ColorMap><Point x o r g b/>, .json is the
-// [{"ColorSpace", "Name", "RGBPoints":[x,r,g,b,...]}] export. Both honour RGB
+// [{"ColorSpace", "Name", "RGBPoints":[x,r,g,b,...]}] export. Both honor RGB
 // and Lab/CIELAB interpolation and throw on any other space rather than
 // silently interpolating in the wrong one.
 ColorMap load_colormap(const std::string& path,

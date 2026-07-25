@@ -147,13 +147,13 @@ inline Vec3 hsv_to_rgb(Vec3 hsv)
     return {r + match, g + match, b + match};
 }
 
-// Interpolate two colours in HSV, taking the shorter way around the hue circle.
+// Interpolate two colors in HSV, taking the shorter way around the hue circle.
 inline Vec3 lerp_hsv(Vec3 a, Vec3 b, float t)
 {
     Vec3 from = rgb_to_hsv(a);
     Vec3 to = rgb_to_hsv(b);
-    // A grey endpoint has no meaningful hue; borrow the other's so the ramp does
-    // not swing through an arbitrary colour.
+    // A gray endpoint has no meaningful hue; borrow the other's so the ramp does
+    // not swing through an arbitrary color.
     if (from.y < 1e-4f)
         from.x = to.x;
     if (to.y < 1e-4f)

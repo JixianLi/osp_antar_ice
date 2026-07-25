@@ -14,7 +14,7 @@ enum class Ease
 };
 
 // The camera is stored as an orbit pose, because the motion is described that
-// way: a revolution or a turn is an azimuth delta. Target is the scene centre,
+// way: a revolution or a turn is an azimuth delta. Target is the scene center,
 // up is the scene up. Azimuth interpolates linearly and may run past 360, so a
 // full revolution is simply a keyframe pair 360 degrees apart.
 struct Keyframe

@@ -27,7 +27,7 @@ struct Bounds
 void frame_scene(OrbitSpec& orbit, const Bounds& bounds, float aspect);
 
 // Loads every object in the session once, then re-applies the peel each frame.
-// The colour LUT is baked at construction; only opacity changes with time, so a
+// The color LUT is baked at construction; only opacity changes with time, so a
 // frame costs a small LUT rebuild rather than a reload.
 class Scene
 {
@@ -41,9 +41,9 @@ public:
     void set_lights(const std::vector<LightSpec>& lights);
     void set_density_scale(std::size_t index, float density_scale);
     void set_surface_range(std::size_t index, Range range);
-    // Paints each layer a single colour, keyed by layer_id rounded to the
-    // nearest surface, so all five colours appear and boundaries fall at the
-    // midpoints between isochrones. Cheap: colour is by layer_id through the
+    // Paints each layer a single color, keyed by layer_id rounded to the
+    // nearest surface, so all five colors appear and boundaries fall at the
+    // midpoints between isochrones. Cheap: color is by layer_id through the
     // transfer function, a 256-entry LUT rebuild, so nothing about the volume
     // moves.
     void set_flat_colors(std::size_t index, const std::array<Vec3, LAYER_COUNT>& layer_colors);
@@ -70,7 +70,7 @@ private:
         SurfaceSpec spec;
         ospray::cpp::Material material;
         ospray::cpp::GeometricModel model;
-        // Kept so the preview can re-range the colour ramp without re-reading
+        // Kept so the preview can re-range the color ramp without re-reading
         // the file; the geometry and its BVH are untouched by a range change.
         ospray::cpp::Geometry mesh;
         std::vector<float> field;
@@ -84,7 +84,7 @@ private:
 
     // Every object is rescaled so the whole scene's longest side spans [-1, 1]
     // about the origin, aspect preserved. Keeps camera distance, near clip and
-    // volume densityScale all O(1) instead of scattered across 1e6 metres.
+    // volume densityScale all O(1) instead of scattered across 1e6 meters.
     Vec3 to_normalized(Vec3 world) const { return (world - center_) * scale_; }
 
     std::vector<VolumeEntry> volumes_;

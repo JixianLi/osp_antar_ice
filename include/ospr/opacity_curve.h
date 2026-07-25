@@ -13,7 +13,7 @@ struct OpacityPoint
 // The peel is drawn as a curve, not parameterised, because the shape is an
 // authoring decision. A whole curve is keyframed; blending two of them is a
 // lerp of their sampled tables, which is well defined because opacity is scalar
-// (unlike colour, where blending two maps goes through muddy intermediates).
+// (unlike color, where blending two maps goes through muddy intermediates).
 struct OpacityCurve
 {
     std::vector<OpacityPoint> points;

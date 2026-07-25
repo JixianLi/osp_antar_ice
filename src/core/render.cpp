@@ -124,10 +124,10 @@ bool same(Vec3 a, Vec3 b)
 
 void FrameRenderer::set_background(Vec3 top, Vec3 bottom)
 {
-    // A tall, 1-wide backplate: OSPRay samples it in normalised screen coords,
+    // A tall, 1-wide backplate: OSPRay samples it in normalized screen coords,
     // so a single column is a pure vertical gradient. Row 0 is the bottom of the
     // frame. Interpolated straight in RGB, so the gradient is a linear ramp
-    // between the two colours with no hue travel.
+    // between the two colors with no hue travel.
     constexpr int STEPS = 256;
     std::vector<Vec3> column(STEPS);
     for (int index = 0; index < STEPS; ++index) {
@@ -221,7 +221,7 @@ const std::vector<uint32_t>& FrameRenderer::pixels()
 {
     const auto* mapped = static_cast<const uint32_t*>(framebuffer_.map(OSP_FB_COLOR));
     if (mapped == nullptr)
-        throw std::runtime_error("failed to map the OSPRay colour buffer");
+        throw std::runtime_error("failed to map the OSPRay color buffer");
     pixels_.assign(mapped, mapped + pixels_.size());
     framebuffer_.unmap(const_cast<uint32_t*>(mapped));
     return pixels_;

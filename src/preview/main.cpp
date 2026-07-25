@@ -1,5 +1,5 @@
 // Interactive scene designer. The render is deliberately tiny -- the point is
-// to judge colour, light and peel timing, then hand the same session file to
+// to judge color, light and peel timing, then hand the same session file to
 // ospr_render on Lonestar6 at 4K. Preview and final share an aspect ratio so
 // framing transfers exactly.
 
@@ -150,13 +150,13 @@ bool opacity_editor(const char* id, ospr::OpacityCurve& curve)
 
     int hovered = -1;
     for (std::size_t index = 0; index < curve.points.size(); ++index) {
-        const ImVec2 centre(to_x(curve.points[index].layer), to_y(curve.points[index].opacity));
-        const float dx = mouse.x - centre.x;
-        const float dy = mouse.y - centre.y;
+        const ImVec2 center(to_x(curve.points[index].layer), to_y(curve.points[index].opacity));
+        const float dx = mouse.x - center.x;
+        const float dy = mouse.y - center.y;
         const bool near = dx * dx + dy * dy < 64.0f;
         if (near)
             hovered = static_cast<int>(index);
-        draw->AddCircleFilled(centre, near ? 6.0f : 4.0f,
+        draw->AddCircleFilled(center, near ? 6.0f : 4.0f,
             near ? IM_COL32(255, 230, 140, 255) : IM_COL32(255, 200, 80, 255));
     }
 
@@ -277,7 +277,7 @@ int main(int argc, char** argv)
         bool follow_script_camera = true;
         bool dirty = true;
 
-        // Flat per-layer colour drives volume 0; the scene has held a single
+        // Flat per-layer color drives volume 0; the scene has held a single
         // volume throughout, so a per-volume UI would be unused machinery.
         // Seeded from the session file so edits start from what is on disk.
         float flat_colors[ospr::LAYER_COUNT][3] = {};
@@ -440,7 +440,7 @@ int main(int argc, char** argv)
                     follow_script_camera = false;
                 }
                 ImGui::SameLine();
-                ImGui::Text("centre %.0f %.0f %.0f",
+                ImGui::Text("center %.0f %.0f %.0f",
                     orbit.center.x, orbit.center.y, orbit.center.z);
                 ImGui::SliderFloat("azimuth", &orbit.azimuth_degrees, -360.0f, 360.0f);
                 ImGui::SliderFloat("elevation", &orbit.elevation_degrees, -89.0f, 89.0f);
@@ -477,24 +477,11 @@ int main(int argc, char** argv)
             }
 
             if (ImGui::CollapsingHeader("background", ImGuiTreeNodeFlags_DefaultOpen)) {
-                const auto to255 = [](const ospr::Vec3& c, int out[3]) {
-                    out[0] = static_cast<int>(std::lround(c.x * 255.0f));
-                    out[1] = static_cast<int>(std::lround(c.y * 255.0f));
-                    out[2] = static_cast<int>(std::lround(c.z * 255.0f));
-                };
-                int top[3];
-                int bottom[3];
-                to255(background_top, top);
-                to255(background_bottom, bottom);
                 bool changed = false;
-                changed |= ImGui::SliderInt3("top", top, 0, 255);
-                changed |= ImGui::SliderInt3("bottom", bottom, 0, 255);
-                if (changed) {
-                    background_top = {top[0] / 255.0f, top[1] / 255.0f, top[2] / 255.0f};
-                    background_bottom
-                        = {bottom[0] / 255.0f, bottom[1] / 255.0f, bottom[2] / 255.0f};
+                changed |= ImGui::ColorEdit3("top", &background_top.x);
+                changed |= ImGui::ColorEdit3("bottom", &background_bottom.x);
+                if (changed)
                     renderer.set_background(background_top, background_bottom);
-                }
                 if (ImGui::Button("save background"))
                     guard_save([&]() {
                         ospr::save_background(script_path, background_top, background_bottom);
@@ -503,17 +490,37 @@ int main(int argc, char** argv)
 
             if (ImGui::CollapsingHeader("lights", ImGuiTreeNodeFlags_DefaultOpen)) {
                 bool changed = false;
+                int remove_index = -1;
                 for (std::size_t index = 0; index < lights.size(); ++index) {
                     ImGui::PushID(static_cast<int>(index));
-                    ImGui::TextUnformatted(lights[index].type.c_str());
+                    // "distant" is OSPRay's name for a directional light.
+                    const bool is_directional = lights[index].type == "distant";
+                    ImGui::TextUnformatted(
+                        is_directional ? "directional" : lights[index].type.c_str());
+                    ImGui::SameLine();
+                    changed |= ImGui::Checkbox("on", &lights[index].enabled);
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("remove"))
+                        remove_index = static_cast<int>(index);
                     changed |= ImGui::SliderFloat(
                         "intensity", &lights[index].intensity, 0.0f, 4.0f);
-                    changed |= ImGui::ColorEdit3("colour", &lights[index].color.x);
-                    if (lights[index].type == "distant")
+                    changed |= ImGui::ColorEdit3("color", &lights[index].color.x);
+                    if (is_directional)
                         changed |= ImGui::SliderFloat3(
                             "direction", &lights[index].direction.x, -1.0f, 1.0f);
                     ImGui::PopID();
                     ImGui::Separator();
+                }
+                if (remove_index >= 0) {
+                    lights.erase(lights.begin() + remove_index);
+                    changed = true;
+                }
+                if (ImGui::Button("add directional light")) {
+                    ospr::LightSpec light;
+                    light.type = "distant";
+                    light.visible = false;
+                    lights.push_back(light);
+                    changed = true;
                 }
                 if (changed) {
                     renderer.scene().set_lights(lights);
@@ -528,7 +535,7 @@ int main(int argc, char** argv)
                      ++index) {
                     ImGui::PushID(static_cast<int>(1000 + index));
                     float density = renderer.scene().volume_spec(index).density_scale;
-                    // Extinction per normalised unit; the scene spans [-1, 1],
+                    // Extinction per normalized unit; the scene spans [-1, 1],
                     // so this is an O(1) knob.
                     if (ImGui::SliderFloat("density", &density, 0.1f, 100.0f, "%.2f",
                             ImGuiSliderFlags_Logarithmic)) {

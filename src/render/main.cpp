@@ -231,7 +231,7 @@ int main(int argc, char** argv)
         const ospr::Bounds& bounds = frame_renderer.bounds();
         std::cout << "scene bounds  " << bounds.lo.x << " .. " << bounds.hi.x << "   "
                   << bounds.lo.y << " .. " << bounds.hi.y << "   " << bounds.lo.z << " .. "
-                  << bounds.hi.z << "\n  centre " << bounds.center().x << ", "
+                  << bounds.hi.z << "\n  center " << bounds.center().x << ", "
                   << bounds.center().y << ", " << bounds.center().z << "   diagonal "
                   << bounds.diagonal() << "\n";
 

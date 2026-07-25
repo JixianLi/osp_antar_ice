@@ -162,7 +162,7 @@ bool space_is_lab(const std::string& space, const std::string& path)
     if (space == "RGB" || space.empty())
         return false;
     throw std::runtime_error(
-        path + ": unsupported colour space \"" + space + "\"; expected RGB, Lab or CIELAB");
+        path + ": unsupported color space \"" + space + "\"; expected RGB, Lab or CIELAB");
 }
 
 ColorMap load_xml_colormap(

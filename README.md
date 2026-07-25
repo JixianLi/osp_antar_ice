@@ -71,7 +71,7 @@ ospr_render <script.json> [--out DIR] [--frame N]
 ```
 
 The renderer applies no vertical exaggeration or layer processing: it only
-centres the scene and scales its longest side to [-1, 1]. Any depth
+centers the scene and scales its longest side to [-1, 1]. Any depth
 exaggeration, band thickening or base fill is baked into the `.vti` upstream
 (see `singn.printing.render_volume`).
 

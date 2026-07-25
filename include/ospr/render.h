@@ -13,7 +13,7 @@
 
 namespace ospr {
 
-// Initialises the OSPRay device; must outlive every FrameRenderer. Throws
+// Initializes the OSPRay device; must outlive every FrameRenderer. Throws
 // std::runtime_error if the device cannot be created.
 class Device
 {

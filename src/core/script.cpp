@@ -139,6 +139,8 @@ LightSpec read_light(const json& node, const std::string& where)
         light.angular_diameter = node.at("angular_diameter").get<float>();
     if (node.contains("visible"))
         light.visible = node.at("visible").get<bool>();
+    if (node.contains("enabled"))
+        light.enabled = node.at("enabled").get<bool>();
     return light;
 }
 
@@ -413,20 +415,26 @@ void save_background(const std::string& path, Vec3 top, Vec3 bottom)
 
 void save_lights(const std::string& path, const std::vector<LightSpec>& lights)
 {
+    // Rewritten whole rather than patched in place: the UI can now add and toggle
+    // lights, so the array's length and membership change. LightSpec carries
+    // every field the loader reads, so nothing is lost by rebuilding.
     ordered_json document = read_document(path);
-    ordered_json& session = session_of(document, path);
-    if (!session.contains("lights") || !session["lights"].is_array())
-        throw std::runtime_error(path + ": missing 'lights' array");
-    ordered_json& array = session["lights"];
-    // Patched in place: only the three fields the lights UI edits are touched,
-    // so visible, angular_diameter and any extra keys keep their exact bytes.
-    const std::size_t count = std::min(lights.size(), array.size());
-    for (std::size_t index = 0; index < count; ++index) {
-        array[index]["intensity"] = clean(lights[index].intensity);
-        array[index]["color"] = clean3(lights[index].color);
-        if (lights[index].type == "distant")
-            array[index]["direction"] = clean3(lights[index].direction);
+    ordered_json array = ordered_json::array();
+    for (const LightSpec& light : lights) {
+        ordered_json entry;
+        entry["type"] = light.type;
+        entry["intensity"] = clean(light.intensity);
+        entry["color"] = clean3(light.color);
+        if (light.type == "distant" || light.type == "sunSky") {
+            entry["direction"] = clean3(light.direction);
+            if (light.type == "distant")
+                entry["angular_diameter"] = clean(light.angular_diameter);
+        }
+        entry["visible"] = light.visible;
+        entry["enabled"] = light.enabled;
+        array.push_back(entry);
     }
+    session_of(document, path)["lights"] = array;
     write_document(path, document);
 }
 
