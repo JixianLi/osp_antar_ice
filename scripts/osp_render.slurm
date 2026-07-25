@@ -22,8 +22,10 @@ RENDER_THREADS=${SLURM_CPUS_ON_NODE:-$(nproc --all)}
 
 echo "cores=$(nproc --all) render_threads=$RENDER_THREADS"
 
-# --osp:num-threads, not OSPRAY_NUM_THREADS: the image's %environment hard-sets
-# that variable at container startup and discards anything exported out here.
-apptainer exec $SIF ./build/bin/ospr_render \
-    --osp:num-threads=$RENDER_THREADS \
-    scenes/peel.json --out out/peel
+# `env` inside the container, not an export out here and not --osp:num-threads.
+# Exporting is discarded by the image's %environment layer, and OSPRay reads
+# OSPRAY_NUM_THREADS in preference to --osp:num-threads, so the flag is silently
+# dead whenever the variable is set by anything. Setting it on the child process
+# is the only channel nothing downstream can override.
+apptainer exec $SIF env OSPRAY_NUM_THREADS=$RENDER_THREADS \
+    ./build/bin/ospr_render scenes/peel.json --out out/peel

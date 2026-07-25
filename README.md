@@ -126,11 +126,19 @@ apptainer build --fakeroot $SCRATCH/osp_renderer.sif apptainer/osp_renderer.def
 apptainer run-help $SCRATCH/osp_renderer.sif      # full build-and-run sequence
 ```
 
-The image sets a floor of `OSPRAY_NUM_THREADS=4`, enough that a login-node smoke
-test cannot saturate the machine. Size a real render explicitly with
-`--osp:num-threads=N`, as `scripts/osp_render.slurm` does -- the image's
-`%environment` overrides any `OSPRAY_NUM_THREADS` exported on the host, so the
-command-line flag is the only reliable control.
+Thread count is the caller's business; the image sets nothing. Size a render by
+putting `OSPRAY_NUM_THREADS` on the child process, as `scripts/osp_render.slurm`
+does:
+
+```bash
+apptainer exec $SIF env OSPRAY_NUM_THREADS=$N ./build/bin/ospr_render ...
+```
+
+`--osp:num-threads=N` works too, but only while `OSPRAY_NUM_THREADS` is unset:
+OSPRay reads the variable in preference to the argument, so a variable set
+anywhere -- including a container's `%environment` -- silently makes the flag a
+no-op. `env` inside the container runs after every layer of apptainer's
+environment handling and is the one channel nothing else can override.
 
 Take `N` from `SLURM_CPUS_ON_NODE`, never from `nproc`: TACC presets
 `OMP_NUM_THREADS=1`, and coreutils `nproc` honors that variable in preference to

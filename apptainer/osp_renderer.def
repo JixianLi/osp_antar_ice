@@ -73,17 +73,20 @@ EOF
 %environment
     export LC_ALL=C.UTF-8
     export LANG=C.UTF-8
-    # A floor, not a policy: OSPRay otherwise grabs every hardware thread on the
-    # node, which is wrong for a login-node smoke test. The caller sizes a real
-    # render with --osp:num-threads=N.
+    # Deliberately no OSPRAY_NUM_THREADS here. It cannot express a default:
+    # OSPRay reads the environment variable in preference to the
+    # --osp:num-threads argument, so any value set at this layer is a ceiling
+    # the caller cannot raise, not a floor they can. Measured on 3.2.0 --
+    # env=1 with --osp:num-threads=8 renders single-threaded.
     #
-    # This block cannot read SLURM_CPUS_ON_NODE or any other host variable.
-    # Apptainer bakes %environment into /.singularity.d/env/90-environment.sh
-    # and evaluates it against the container's own environment; host variables
-    # are merged in afterward and do not override what these scripts set. An
-    # earlier version computed ${SLURM_CPUS_ON_NODE:-4} here and silently always
-    # took the 4.
-    export OSPRAY_NUM_THREADS=${OSPRAY_NUM_THREADS:-4}
+    # This block also cannot read SLURM_CPUS_ON_NODE or any other host
+    # variable: apptainer bakes %environment into
+    # /.singularity.d/env/90-environment.sh and evaluates it against the
+    # container's own environment, merging host variables in afterward without
+    # letting them override. An earlier version computed
+    # ${SLURM_CPUS_ON_NODE:-4} here and silently always took the 4.
+    #
+    # Thread count is the caller's business. scripts/osp_render.slurm sets it.
 
 %runscript
     exec "$@"
@@ -130,12 +133,15 @@ EOF
     same absolute path it was built at. If you relocate the checkout, reconfigure
     CMake.
 
-    Thread count: the image only sets a floor of OSPRAY_NUM_THREADS=4, enough to
-    keep a login-node smoke test from saturating the machine. Size a real render
-    with --osp:num-threads=N; see scripts/osp_render.slurm. Exporting
-    OSPRAY_NUM_THREADS on the host does not work -- %environment overrides it --
-    so pass it with `apptainer exec --env` if you need the variable rather than
-    the flag.
+    Thread count: the image sets nothing, so OSPRay takes the whole node unless
+    the caller says otherwise. Size a render with
+
+        apptainer exec osp_renderer.sif env OSPRAY_NUM_THREADS=$N ./build/bin/...
+
+    `env` inside the container runs after every layer of apptainer's own
+    environment handling, so it is the one channel that cannot be overridden.
+    --osp:num-threads=N also works, but only while OSPRAY_NUM_THREADS is unset:
+    OSPRay reads the variable in preference to the argument.
 
     Do not derive N from `nproc` on Lonestar6. TACC presets OMP_NUM_THREADS=1 and
     coreutils nproc reports that instead of the affinity-mask size; use
