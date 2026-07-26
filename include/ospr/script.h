@@ -45,6 +45,31 @@ struct SurfaceSpec
     float roughness{0.7f};
 };
 
+// Round tubes drawn from baked polylines: the elevation contours and the striped
+// flag pole. The .vtp may carry a per-vertex "color" array (the pole's red/white
+// bands); if it does not, every tube takes the flat color. layer couples the
+// tube to the peel exactly like a surface -- negative pins it opaque.
+struct CurveSpec
+{
+    std::string path;
+    float radius{0.004f};
+    Vec3 color{0.0f, 0.0f, 0.0f};
+    float layer{-1.0f};
+    float roughness{0.7f};
+};
+
+// The COLDEX flag: a textured quad that yaw-billboards to face the camera about
+// the vertical axis through the pole, so it stays upright but always readable.
+// The quad geometry (with texcoords) is baked; the renderer owns only the
+// per-frame rotation. It never fades.
+struct FlagSpec
+{
+    std::string path;    // .vts 2x2 quad carrying a "texcoord" point array
+    std::string texture; // image file mapped onto the quad
+    float pole_x{0.0f};  // pivot of the billboard rotation, in world units
+    float pole_y{0.0f};
+};
+
 // Built-in scene with no data files, so the smoke test that proves a build
 // works still runs inside the render container and on a compute node.
 struct TetrahedronSpec
@@ -103,6 +128,8 @@ struct Session
     RendererSpec renderer;
     std::vector<VolumeSpec> volumes;
     std::vector<SurfaceSpec> surfaces;
+    std::vector<CurveSpec> curves;
+    std::vector<FlagSpec> flags;
     std::vector<TetrahedronSpec> tetrahedra;
     std::vector<LightSpec> lights;
 };

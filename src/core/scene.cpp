@@ -8,6 +8,7 @@
 #include <utility>
 
 #include "ospr/colormap.h"
+#include "ospr/image.h"
 #include "ospr/vtk_xml.h"
 
 namespace ospr {
@@ -114,8 +115,12 @@ Scene::Scene(const Session& session)
     // is built: the normalization depends on the whole scene's extent.
     std::vector<ImageData> volume_data;
     std::vector<StructuredGrid> surface_data;
+    std::vector<PolyLines> curve_data;
+    std::vector<StructuredGrid> flag_data;
     volume_data.reserve(session.volumes.size());
     surface_data.reserve(session.surfaces.size());
+    curve_data.reserve(session.curves.size());
+    flag_data.reserve(session.flags.size());
 
     Bounds raw;
     bool initialized = false;
@@ -149,6 +154,24 @@ Scene::Scene(const Session& session)
         surface_data.push_back(std::move(grid));
     }
 
+    for (const CurveSpec& spec : session.curves) {
+        PolyLines lines = read_vtp(spec.path);
+        for (const Vec3& point : lines.points)
+            if (finite(point))
+                grow(raw, initialized, point, point);
+        curve_data.push_back(std::move(lines));
+    }
+
+    for (const FlagSpec& spec : session.flags) {
+        StructuredGrid grid = read_vts(spec.path);
+        if (grid.find("texcoord") == nullptr)
+            throw std::runtime_error(spec.path + ": flag needs a 'texcoord' point array");
+        for (const Vec3& point : grid.points)
+            if (finite(point))
+                grow(raw, initialized, point, point);
+        flag_data.push_back(std::move(grid));
+    }
+
     for (const TetrahedronSpec& spec : session.tetrahedra)
         grow(raw, initialized, {-spec.scale, -spec.scale, -spec.scale},
             {spec.scale, spec.scale, spec.scale});
@@ -163,6 +186,10 @@ Scene::Scene(const Session& session)
         add_volume(volume_data[index], session.volumes[index]);
     for (std::size_t index = 0; index < session.surfaces.size(); ++index)
         add_surface(surface_data[index], session.surfaces[index]);
+    for (std::size_t index = 0; index < session.curves.size(); ++index)
+        add_curve(curve_data[index], session.curves[index]);
+    for (std::size_t index = 0; index < session.flags.size(); ++index)
+        add_flag(flag_data[index], session.flags[index]);
     for (const TetrahedronSpec& tetrahedron : session.tetrahedra)
         add_tetrahedron(tetrahedron);
     build_world(session);
@@ -296,6 +323,131 @@ void Scene::add_surface(const StructuredGrid& grid, const SurfaceSpec& spec)
     surfaces_.push_back({spec, material, model, mesh, field->values, colormap});
 }
 
+void Scene::add_curve(const PolyLines& lines, const CurveSpec& spec)
+{
+    const DataArray* color = lines.find("color");
+    const bool per_vertex_color = color != nullptr && color->components == 3;
+
+    // OSPRay's linear curve segment i runs from vertex index[i] to index[i]+1 --
+    // it connects *consecutive positions*, not arbitrary connectivity. So each
+    // polyline's points are re-emitted contiguously in traversal order, and index
+    // holds the segment starts within that layout (all but each polyline's last).
+    std::vector<Vec3> positions;
+    std::vector<Vec4> colors;
+    std::vector<unsigned int> indices;
+    for (const std::vector<unsigned int>& line : lines.lines) {
+        const unsigned int base = static_cast<unsigned int>(positions.size());
+        for (const unsigned int vertex : line) {
+            positions.push_back(to_normalized(lines.points[vertex]));
+            if (per_vertex_color)
+                colors.push_back({color->values[vertex * 3], color->values[vertex * 3 + 1],
+                    color->values[vertex * 3 + 2], 1.0f});
+        }
+        for (std::size_t point = 0; point + 1 < line.size(); ++point)
+            indices.push_back(base + static_cast<unsigned int>(point));
+    }
+    if (indices.empty())
+        throw std::runtime_error(spec.path + ": curve has no segments");
+
+    ospray::cpp::Geometry curve("curve");
+    curve.setParam("vertex.position", ospray::cpp::CopiedData(positions));
+    if (per_vertex_color)
+        curve.setParam("vertex.color", ospray::cpp::CopiedData(colors));
+    curve.setParam("index", ospray::cpp::CopiedData(indices));
+    curve.setParam("radius", spec.radius);
+    curve.setParam("type", static_cast<unsigned char>(OSP_ROUND));
+    curve.setParam("basis", static_cast<unsigned char>(OSP_LINEAR));
+    curve.commit();
+
+    // With per-vertex color a white base lets the vertex color through; without
+    // it the flat spec color is the tube's albedo.
+    ospray::cpp::Material material("obj");
+    material.setParam("kd", per_vertex_color ? Vec3{1.0f, 1.0f, 1.0f} : spec.color);
+    material.setParam("ns", std::max(2.0f, 100.0f * (1.0f - spec.roughness)));
+    material.commit();
+
+    ospray::cpp::GeometricModel model(curve);
+    model.setParam("material", material);
+    model.commit();
+
+    curves_.push_back({spec, material, model});
+}
+
+namespace {
+
+float srgb_to_linear(float channel)
+{
+    return channel <= 0.04045f ? channel / 12.92f
+                               : std::pow((channel + 0.055f) / 1.055f, 2.4f);
+}
+
+} // namespace
+
+void Scene::add_flag(const StructuredGrid& grid, const FlagSpec& spec)
+{
+    const DataArray* texcoord = grid.find("texcoord");
+    if (texcoord == nullptr || texcoord->components != 2)
+        throw std::runtime_error(spec.path + ": flag needs a 2-component 'texcoord' array");
+
+    std::vector<Vec3> positions(grid.points.size());
+    std::vector<Vec2> uv(grid.points.size());
+    for (std::size_t index = 0; index < grid.points.size(); ++index) {
+        positions[index] = to_normalized(grid.points[index]);
+        uv[index] = {texcoord->values[index * 2], texcoord->values[index * 2 + 1]};
+    }
+
+    const int width = grid.dims[0];
+    const int height = grid.dims[1];
+    std::vector<Vec3ui> indices;
+    for (int row = 0; row + 1 < height; ++row)
+        for (int column = 0; column + 1 < width; ++column) {
+            const unsigned int a = static_cast<unsigned int>(row * width + column);
+            const unsigned int b = a + 1;
+            const unsigned int c = a + width;
+            const unsigned int d = c + 1;
+            indices.push_back({a, c, b});
+            indices.push_back({b, c, d});
+        }
+    if (indices.empty())
+        throw std::runtime_error(spec.path + ": flag has no renderable cells");
+
+    ospray::cpp::Geometry mesh("mesh");
+    mesh.setParam("vertex.position", ospray::cpp::CopiedData(positions));
+    mesh.setParam("vertex.texcoord", ospray::cpp::CopiedData(uv));
+    mesh.setParam("index", ospray::cpp::CopiedData(indices));
+    mesh.commit();
+
+    // The logo file is sRGB; upload it as linear float so the path tracer lights
+    // it correctly and the framebuffer's sRGB encode restores it on the way out.
+    const Image image = read_image(spec.texture);
+    std::vector<Vec3> texels(static_cast<std::size_t>(image.width) * image.height);
+    for (std::size_t index = 0; index < texels.size(); ++index)
+        texels[index] = {srgb_to_linear(image.rgba[index * 4] / 255.0f),
+            srgb_to_linear(image.rgba[index * 4 + 1] / 255.0f),
+            srgb_to_linear(image.rgba[index * 4 + 2] / 255.0f)};
+
+    ospray::cpp::Texture texture("texture2d");
+    texture.setParam("format", OSP_TEXTURE_RGB32F);
+    texture.setParam("filter", OSP_TEXTURE_FILTER_LINEAR);
+    texture.setParam("data",
+        ospray::cpp::CopiedData(texels.data(),
+            Vec2ul{static_cast<unsigned long long>(image.width),
+                static_cast<unsigned long long>(image.height)}));
+    texture.commit();
+
+    ospray::cpp::Material material("obj");
+    material.setParam("map_kd", texture);
+    material.commit();
+
+    ospray::cpp::GeometricModel model(mesh);
+    model.setParam("material", material);
+    model.commit();
+
+    if (flag_models_.empty())
+        flag_pivot_ = to_normalized({spec.pole_x, spec.pole_y, 0.0f});
+    flag_models_.push_back(model);
+}
+
 // Regular tetrahedron on alternating corners of the cube, one color per vertex
 // so the result shows barycentric interpolation. Windings are counter-clockwise
 // seen from outside.
@@ -366,22 +518,48 @@ void Scene::build_world(const Session& session)
             models.push_back(entry.model);
         group.setParam("volume", ospray::cpp::CopiedData(models));
     }
-    if (!surfaces_.empty()) {
-        std::vector<ospray::cpp::GeometricModel> models;
-        for (const SurfaceEntry& entry : surfaces_)
-            models.push_back(entry.model);
-        group.setParam("geometry", ospray::cpp::CopiedData(models));
-    }
+    // Surfaces and curve tubes are both geometry in the static instance.
+    std::vector<ospray::cpp::GeometricModel> geometry;
+    for (const SurfaceEntry& entry : surfaces_)
+        geometry.push_back(entry.model);
+    for (const CurveEntry& entry : curves_)
+        geometry.push_back(entry.model);
+    if (!geometry.empty())
+        group.setParam("geometry", ospray::cpp::CopiedData(geometry));
     group.commit();
 
     ospray::cpp::Instance instance(group);
     instance.commit();
     instance_ = instance;
 
+    std::vector<ospray::cpp::Instance> instances{instance_};
+    has_flag_ = !flag_models_.empty();
+    if (has_flag_) {
+        ospray::cpp::Group flag_group;
+        flag_group.setParam("geometry", ospray::cpp::CopiedData(flag_models_));
+        flag_group.commit();
+        flag_instance_ = ospray::cpp::Instance(flag_group);
+        flag_instance_.commit();
+        instances.push_back(flag_instance_);
+    }
+
     world_ = ospray::cpp::World();
-    world_.setParam("instance", ospray::cpp::CopiedData(instance));
+    world_.setParam("instance", ospray::cpp::CopiedData(instances));
     if (!lights_.empty())
         world_.setParam("light", ospray::cpp::CopiedData(lights_));
+    world_.commit();
+}
+
+void Scene::orient_flag(const Camera& camera)
+{
+    if (!has_flag_)
+        return;
+    // The baked flag faces +x; rotate it by the angle that turns +x onto the
+    // horizontal pole-to-camera direction, about the vertical axis at the pole.
+    const float angle = std::atan2(
+        camera.position.y - flag_pivot_.y, camera.position.x - flag_pivot_.x);
+    flag_instance_.setParam("transform", rotate_about_z(angle, flag_pivot_));
+    flag_instance_.commit();
     world_.commit();
 }
 
@@ -461,6 +639,15 @@ void Scene::apply_opacity(const OpacityCurve& curve)
     }
 
     for (SurfaceEntry& entry : surfaces_) {
+        const float opacity = entry.spec.layer < 0.0f
+            ? 1.0f
+            : std::clamp(curve.at(entry.spec.layer), 0.0f, 1.0f);
+        entry.material.setParam("d", opacity);
+        entry.material.commit();
+        entry.model.commit();
+    }
+
+    for (CurveEntry& entry : curves_) {
         const float opacity = entry.spec.layer < 0.0f
             ? 1.0f
             : std::clamp(curve.at(entry.spec.layer), 0.0f, 1.0f);

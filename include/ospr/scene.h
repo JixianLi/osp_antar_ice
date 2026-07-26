@@ -5,6 +5,7 @@
 
 #include <ospray/ospray_cpp.h>
 
+#include "ospr/camera.h"
 #include "ospr/colormap.h"
 #include "ospr/opacity_curve.h"
 #include "ospr/script.h"
@@ -35,6 +36,11 @@ public:
     explicit Scene(const Session& session);
 
     void apply_opacity(const OpacityCurve& curve);
+
+    // Spins the flag about the pole so its face points at the camera, staying
+    // upright. A no-op when the scene has no flag. Cheap: one instance transform
+    // and a top-level BVH refit, no geometry touched.
+    void orient_flag(const Camera& camera);
 
     // Live edits from the preview. Each re-commits only what it touched; the
     // volume data and surface geometry are never reloaded.
@@ -77,8 +83,18 @@ private:
         ColorMap colormap;
     };
 
+    // A tube couples to the peel through its material dissolve, like a surface.
+    struct CurveEntry
+    {
+        CurveSpec spec;
+        ospray::cpp::Material material;
+        ospray::cpp::GeometricModel model;
+    };
+
     void add_volume(const ImageData& data, const VolumeSpec& spec);
     void add_surface(const StructuredGrid& grid, const SurfaceSpec& spec);
+    void add_curve(const PolyLines& lines, const CurveSpec& spec);
+    void add_flag(const StructuredGrid& grid, const FlagSpec& spec);
     void add_tetrahedron(const TetrahedronSpec& spec);
     void build_world(const Session& session);
 
@@ -89,9 +105,18 @@ private:
 
     std::vector<VolumeEntry> volumes_;
     std::vector<SurfaceEntry> surfaces_;
+    std::vector<CurveEntry> curves_;
     std::vector<ospray::cpp::Light> lights_;
     ospray::cpp::Group group_;
     ospray::cpp::Instance instance_;
+
+    // The flag lives in its own instance so its per-frame billboard transform
+    // does not disturb the static scene. Present only when the scene has a flag.
+    bool has_flag_{false};
+    std::vector<ospray::cpp::GeometricModel> flag_models_;
+    ospray::cpp::Instance flag_instance_;
+    Vec3 flag_pivot_;
+
     ospray::cpp::World world_;
     Bounds bounds_;
     Vec3 center_;

@@ -40,12 +40,27 @@ struct StructuredGrid
     std::size_t point_count() const;
 };
 
-// Reads VTK XML ImageData (.vti) and StructuredGrid (.vts). Supports the subset
-// the singn pipeline emits: appended raw data, little endian, UInt32 or UInt64
-// headers, optional vtkZLibDataCompressor, identity Direction. Anything else
-// throws std::runtime_error naming what was unsupported rather than failing
-// subtly.
+// PolyData holding only lines: the contour and pole tubes are baked as polylines
+// (the renderer draws them as round curves). Each entry of lines is one
+// polyline's vertex indices into points.
+struct PolyLines
+{
+    std::vector<Vec3> points;
+    std::vector<std::vector<unsigned int>> lines;
+    std::vector<DataArray> point_arrays;
+
+    const DataArray* find(const std::string& name) const;
+    std::size_t point_count() const { return points.size(); }
+};
+
+// Reads VTK XML ImageData (.vti), StructuredGrid (.vts) and PolyData (.vtp).
+// Supports the subset the singn pipeline emits: appended raw data, little endian,
+// UInt32 or UInt64 headers, optional vtkZLibDataCompressor, identity Direction.
+// read_vtp reads only the <Lines> cells; <Polys>/<Verts>/<Strips> are ignored.
+// Anything else throws std::runtime_error naming what was unsupported rather
+// than failing subtly.
 ImageData read_vti(const std::string& path);
 StructuredGrid read_vts(const std::string& path);
+PolyLines read_vtp(const std::string& path);
 
 } // namespace ospr

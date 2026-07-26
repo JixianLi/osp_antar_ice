@@ -56,6 +56,17 @@ void widen_to_float(const char* bytes, std::size_t count, std::vector<float>& ou
     }
 }
 
+template <typename T>
+void widen_to_u64(const char* bytes, std::size_t count, std::vector<uint64_t>& out)
+{
+    out.resize(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        T value;
+        std::memcpy(&value, bytes + index * sizeof(T), sizeof(T));
+        out[index] = static_cast<uint64_t>(value);
+    }
+}
+
 std::size_t size_of_vtk_type(const std::string& type)
 {
     if (type == "Int8" || type == "UInt8")
@@ -266,6 +277,44 @@ std::vector<float> decode_data_array(const Container& container,
     return values;
 }
 
+// Cell connectivity/offsets are integer arrays; widening them to float would
+// lose exactness past 2^24 indices, so they are decoded to uint64 directly.
+std::vector<uint64_t> decode_int_array(const Container& container,
+    const pugi::xml_node& node,
+    const std::string& path,
+    std::size_t expected_elements)
+{
+    const std::string name = node.attribute("Name").value();
+    const std::string format = node.attribute("format").value();
+    require(format == "appended",
+        path + ": array " + name + " uses format=\"" + format
+            + "\"; only \"appended\" is supported");
+
+    const std::string type = node.attribute("type").value();
+    const std::vector<char> bytes = decode_block(container.file,
+        container.appended_start,
+        node.attribute("offset").as_ullong(),
+        container.compressed,
+        container.wide_header,
+        name);
+    require(bytes.size() == expected_elements * size_of_vtk_type(type),
+        path + ": array " + name + " decoded to " + std::to_string(bytes.size())
+            + " bytes, expected " + std::to_string(expected_elements * size_of_vtk_type(type)));
+
+    std::vector<uint64_t> values;
+    if (type == "Int32")
+        widen_to_u64<int32_t>(bytes.data(), expected_elements, values);
+    else if (type == "UInt32")
+        widen_to_u64<uint32_t>(bytes.data(), expected_elements, values);
+    else if (type == "Int64")
+        widen_to_u64<int64_t>(bytes.data(), expected_elements, values);
+    else if (type == "UInt64")
+        widen_to_u64<uint64_t>(bytes.data(), expected_elements, values);
+    else
+        throw std::runtime_error(path + ": array " + name + " has non-integer type " + type);
+    return values;
+}
+
 std::vector<DataArray> read_point_arrays(
     const Container& container, const std::string& path, std::size_t point_count)
 {
@@ -363,6 +412,80 @@ StructuredGrid read_vts(const std::string& path)
 
     grid.point_arrays = read_point_arrays(container, path, grid.point_count());
     return grid;
+}
+
+const DataArray* PolyLines::find(const std::string& name) const
+{
+    for (const DataArray& array : point_arrays)
+        if (array.name == name)
+            return &array;
+    return nullptr;
+}
+
+namespace {
+
+// Locates a named DataArray under a <Lines>/<Cells> element; connectivity and
+// offsets are addressed by Name, not position.
+pugi::xml_node cell_array(const pugi::xml_node& cells, const char* name)
+{
+    for (pugi::xml_node node : cells.children("DataArray"))
+        if (std::string(node.attribute("Name").value()) == name)
+            return node;
+    return {};
+}
+
+} // namespace
+
+PolyLines read_vtp(const std::string& path)
+{
+    const Container container = open_container(path, "PolyData");
+
+    PolyLines poly;
+    const std::size_t point_count = container.piece.attribute("NumberOfPoints").as_ullong();
+
+    const pugi::xml_node points = container.piece.child("Points");
+    require(points, path + ": no <Points> element");
+    const pugi::xml_node coordinates = points.child("DataArray");
+    require(coordinates, path + ": no <DataArray> under <Points>");
+    require(coordinates.attribute("NumberOfComponents").as_int(3) == 3,
+        path + ": point coordinates must have 3 components");
+    const std::vector<float> flat
+        = decode_data_array(container, coordinates, path, point_count * 3);
+    poly.points.resize(point_count);
+    for (std::size_t index = 0; index < point_count; ++index)
+        poly.points[index] = {flat[index * 3], flat[index * 3 + 1], flat[index * 3 + 2]};
+
+    const pugi::xml_node lines = container.piece.child("Lines");
+    if (lines) {
+        const std::size_t line_count = container.piece.attribute("NumberOfLines").as_ullong();
+        const pugi::xml_node offsets_node = cell_array(lines, "offsets");
+        const pugi::xml_node connectivity_node = cell_array(lines, "connectivity");
+        require(offsets_node && connectivity_node,
+            path + ": <Lines> is missing connectivity or offsets");
+
+        // VTK offsets hold one cumulative end index per cell (leading 0 implied),
+        // so the connectivity length is the last offset.
+        const std::vector<uint64_t> offsets
+            = decode_int_array(container, offsets_node, path, line_count);
+        const std::size_t connectivity_count = line_count == 0 ? 0 : offsets.back();
+        const std::vector<uint64_t> connectivity
+            = decode_int_array(container, connectivity_node, path, connectivity_count);
+
+        std::size_t start = 0;
+        poly.lines.reserve(line_count);
+        for (std::size_t line = 0; line < line_count; ++line) {
+            const std::size_t end = offsets[line];
+            std::vector<unsigned int> vertices;
+            vertices.reserve(end - start);
+            for (std::size_t index = start; index < end; ++index)
+                vertices.push_back(static_cast<unsigned int>(connectivity[index]));
+            poly.lines.push_back(std::move(vertices));
+            start = end;
+        }
+    }
+
+    poly.point_arrays = read_point_arrays(container, path, point_count);
+    return poly;
 }
 
 } // namespace ospr

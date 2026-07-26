@@ -191,6 +191,8 @@ void FrameRenderer::set_camera(const Camera& camera)
     camera_.setParam("up", camera.up);
     camera_.setParam("fovy", camera.fov_y_degrees);
     camera_.commit();
+    // The flag billboards to the new view; a no-op unless the scene has a flag.
+    scene_.orient_flag(camera);
     reset();
 }
 

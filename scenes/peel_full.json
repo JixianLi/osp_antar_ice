@@ -58,6 +58,76 @@
             ]
           ]
         }
+      },
+      {
+        "type": "curve",
+        "path": "../data/contours_L1_bm5000_s1000_m10000_t0.35_g2000_p50_render_full.vtp",
+        "radius": 0.0008,
+        "color": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "layer": 1.0
+      },
+      {
+        "type": "curve",
+        "path": "../data/contours_L5_bm5000_s1000_m10000_t0.35_g2000_p50_render_full.vtp",
+        "radius": 0.0008,
+        "color": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "layer": 2.0
+      },
+      {
+        "type": "curve",
+        "path": "../data/contours_L7_bm5000_s1000_m10000_t0.35_g2000_p50_render_full.vtp",
+        "radius": 0.0008,
+        "color": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "layer": 3.0
+      },
+      {
+        "type": "curve",
+        "path": "../data/contours_Basal_bm5000_s1000_m10000_t0.35_g2000_p50_render_full.vtp",
+        "radius": 0.0008,
+        "color": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "layer": 4.0
+      },
+      {
+        "type": "curve",
+        "path": "../data/contours_Bed_bm5000_s1000_m10000_t0.35_g2000_p50_render_full.vtp",
+        "radius": 0.0008,
+        "color": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "layer": 5.0
+      },
+      {
+        "type": "curve",
+        "path": "../data/pole_bm5000_s1000_m10000_t0.35_g2000_p50_render_full.vtp",
+        "radius": 0.006,
+        "layer": -1.0
+      },
+      {
+        "type": "flag",
+        "path": "../data/flag_bm5000_s1000_m10000_t0.35_g2000_p50_render_full.vts",
+        "texture": "../data/NSF_COLDEX_logo.png",
+        "pole": [
+          0.0,
+          0.0
+        ]
       }
     ],
     "lights": [

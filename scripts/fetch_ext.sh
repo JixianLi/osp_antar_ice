@@ -47,6 +47,7 @@ esac
 OSPRAY_URL="https://github.com/RenderKit/ospray/releases/download/v${OSPRAY_VERSION}/${OSPRAY_ASSET}"
 JSON_URL="https://github.com/nlohmann/json/releases/download/v${JSON_VERSION}/json.hpp"
 STB_URL="https://raw.githubusercontent.com/nothings/stb/${STB_COMMIT}/stb_image_write.h"
+STB_IMAGE_URL="https://raw.githubusercontent.com/nothings/stb/${STB_COMMIT}/stb_image.h"
 PUGIXML_URL="https://github.com/zeux/pugixml/releases/download/v${PUGIXML_VERSION}/pugixml-${PUGIXML_VERSION}.tar.gz"
 MINIZ_URL="https://github.com/richgel999/miniz/releases/download/${MINIZ_VERSION}/miniz-${MINIZ_VERSION}.zip"
 GLFW_URL="https://github.com/glfw/glfw/releases/download/${GLFW_VERSION}/glfw-${GLFW_VERSION}.zip"
@@ -104,7 +105,8 @@ unpack_zip() {
 echo "==> downloading into ext/.download"
 download "$OSPRAY_URL"  "$OSPRAY_ASSET"
 download "$JSON_URL"    "json-${JSON_VERSION}.hpp"
-download "$STB_URL"     "stb_image_write-${STB_COMMIT}.h"
+download "$STB_URL"       "stb_image_write-${STB_COMMIT}.h"
+download "$STB_IMAGE_URL"  "stb_image-${STB_COMMIT}.h"
 download "$PUGIXML_URL" "pugixml-${PUGIXML_VERSION}.tar.gz"
 download "$MINIZ_URL"   "miniz-${MINIZ_VERSION}.zip"
 download "$GLFW_URL"    "glfw-${GLFW_VERSION}.zip"
@@ -123,6 +125,7 @@ else
     verify "$OSPRAY_ASSET"
     verify "json-${JSON_VERSION}.hpp"
     verify "stb_image_write-${STB_COMMIT}.h"
+    verify "stb_image-${STB_COMMIT}.h"
     verify "pugixml-${PUGIXML_VERSION}.tar.gz"
     verify "miniz-${MINIZ_VERSION}.zip"
     verify "glfw-${GLFW_VERSION}.zip"
@@ -139,6 +142,7 @@ esac
 mkdir -p "$EXT/json/nlohmann" "$EXT/stb"
 cp "$DL/json-${JSON_VERSION}.hpp"        "$EXT/json/nlohmann/json.hpp"
 cp "$DL/stb_image_write-${STB_COMMIT}.h" "$EXT/stb/stb_image_write.h"
+cp "$DL/stb_image-${STB_COMMIT}.h"       "$EXT/stb/stb_image.h"
 
 # pugixml ships a full source tree; we only want the three amalgamation files.
 if [[ ! -f "$EXT/pugixml/pugixml.cpp" || $FORCE -eq 1 ]]; then

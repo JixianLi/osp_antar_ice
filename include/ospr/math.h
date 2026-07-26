@@ -27,6 +27,17 @@ struct Vec2
     float x{0.0f}, y{0.0f};
 };
 
+// An OSPRay affine3f (rkcommon AffineSpace3f): the linear part as three column
+// vectors vx, vy, vz followed by the translation p, laid out as 12 contiguous
+// floats. Used for an Instance's "transform" -- see rotate_about_z.
+struct Affine3f
+{
+    Vec3 vx{1.0f, 0.0f, 0.0f};
+    Vec3 vy{0.0f, 1.0f, 0.0f};
+    Vec3 vz{0.0f, 0.0f, 1.0f};
+    Vec3 p{0.0f, 0.0f, 0.0f};
+};
+
 // A 1D range (rkcommon box1f). The transfer function's "value" parameter is
 // this type, NOT a vec2f: passing the wrong type makes OSPRay silently keep the
 // default [0, 1] range, so every scalar outside it clamps to a LUT end.
@@ -106,6 +117,17 @@ inline float lerp(float a, float b, float t)
     return a + (b - a) * t;
 }
 
+// Rotation by angle (radians) about the vertical (z) axis passing through pivot,
+// so a billboard can spin to face the camera while staying upright. The pivot is
+// held fixed: p = pivot - R * pivot.
+inline Affine3f rotate_about_z(float angle, Vec3 pivot)
+{
+    const float c = std::cos(angle);
+    const float s = std::sin(angle);
+    const Vec3 rotated_pivot{pivot.x * c - pivot.y * s, pivot.x * s + pivot.y * c, pivot.z};
+    return {{c, s, 0.0f}, {-s, c, 0.0f}, {0.0f, 0.0f, 1.0f}, pivot - rotated_pivot};
+}
+
 // sRGB <-> HSV so a gradient interpolates through hue rather than desaturating
 // across the RGB midpoint. Components are all in [0, 1]; hue wraps.
 inline Vec3 rgb_to_hsv(Vec3 rgb)
@@ -180,6 +202,7 @@ OSPTYPEFOR_SPECIALIZATION(ospr::Vec3, OSP_VEC3F);
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec4, OSP_VEC4F);
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec3ui, OSP_VEC3UI);
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec2, OSP_VEC2F);
+OSPTYPEFOR_SPECIALIZATION(ospr::Affine3f, OSP_AFFINE3F);
 OSPTYPEFOR_SPECIALIZATION(ospr::Box1f, OSP_BOX1F);
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec2ul, OSP_VEC2UL);
 OSPTYPEFOR_SPECIALIZATION(ospr::Vec3ul, OSP_VEC3UL);

@@ -124,6 +124,44 @@ SurfaceSpec read_surface(
     return surface;
 }
 
+CurveSpec read_curve(
+    const json& node, const std::filesystem::path& base, const std::string& where)
+{
+    CurveSpec curve;
+    if (!node.contains("path"))
+        throw std::runtime_error(where + ": missing 'path'");
+    curve.path = resolve(base, node.at("path").get<std::string>());
+    if (node.contains("radius"))
+        curve.radius = node.at("radius").get<float>();
+    if (node.contains("color"))
+        curve.color = read_vec3(node.at("color"), where + ".color");
+    if (node.contains("layer"))
+        curve.layer = node.at("layer").is_null() ? -1.0f : node.at("layer").get<float>();
+    if (node.contains("roughness"))
+        curve.roughness = node.at("roughness").get<float>();
+    return curve;
+}
+
+FlagSpec read_flag(
+    const json& node, const std::filesystem::path& base, const std::string& where)
+{
+    FlagSpec flag;
+    if (!node.contains("path"))
+        throw std::runtime_error(where + ": missing 'path'");
+    flag.path = resolve(base, node.at("path").get<std::string>());
+    if (!node.contains("texture"))
+        throw std::runtime_error(where + ": missing 'texture'");
+    flag.texture = resolve(base, node.at("texture").get<std::string>());
+    if (node.contains("pole")) {
+        const json& pole = node.at("pole");
+        if (!pole.is_array() || pole.size() != 2)
+            throw std::runtime_error(where + ".pole: expected an array of 2 numbers [x, y]");
+        flag.pole_x = pole[0].get<float>();
+        flag.pole_y = pole[1].get<float>();
+    }
+    return flag;
+}
+
 LightSpec read_light(const json& node, const std::string& where)
 {
     LightSpec light;
@@ -210,6 +248,10 @@ Script load_script(const std::string& path)
                 script.session.volumes.push_back(read_volume(object, base, where));
             else if (type == "surface")
                 script.session.surfaces.push_back(read_surface(object, base, where));
+            else if (type == "curve")
+                script.session.curves.push_back(read_curve(object, base, where));
+            else if (type == "flag")
+                script.session.flags.push_back(read_flag(object, base, where));
             else if (type == "tetrahedron") {
                 TetrahedronSpec tetrahedron;
                 if (object.contains("scale"))
