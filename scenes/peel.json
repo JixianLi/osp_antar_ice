@@ -130,23 +130,26 @@
           0.901961,
           1.0
         ],
-        "visible": false
+        "visible": false,
+        "enabled": true
       },
       {
         "type": "distant",
-        "direction": [
-          -0.967,
-          -0.14,
-          -1.0
-        ],
         "intensity": 2.0,
-        "angular_diameter": 2.0,
         "color": [
           1.0,
           1.0,
           1.0
         ],
-        "visible": false
+        "direction": [
+          -0.42,
+          0.871645,
+          -0.446198
+        ],
+        "angular_diameter": 2.0,
+        "follow_camera": false,
+        "visible": false,
+        "enabled": true
       }
     ]
   },
@@ -275,7 +278,7 @@
           0.0
         ],
         [
-          4.9,
+          4.999,
           0.0
         ],
         [
