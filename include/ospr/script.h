@@ -89,6 +89,9 @@ struct LightSpec
     bool visible{true};
     // Off lights are simply left out of the world's light list.
     bool enabled{true};
+    // Directional lights only: direction is overwritten with the camera's view
+    // direction every frame, so the light stays a headlight.
+    bool follow_camera{false};
 };
 
 struct RendererSpec
@@ -151,6 +154,9 @@ struct Script
     // user sets.
     int frames_between{20};
     Vec3 up{0.0f, 0.0f, 1.0f};
+    // The point every keyframe pose orbits, in normalised scene space where the
+    // longest side spans [-1, 1].
+    Vec3 center{0.0f, 0.0f, 0.0f};
     std::vector<Keyframe> keyframes;
 };
 
@@ -175,6 +181,12 @@ void save_opacity(const std::string& path, int keyframe_index, const OpacityCurv
 // Camera is global while the trajectory feature is hidden, so this writes the
 // one pose to every keyframe, keeping them identical.
 void save_camera(const std::string& path, float azimuth, float elevation, float fov, float radius);
+void save_center(const std::string& path, Vec3 center);
+
+// Aims every follow_camera light along the camera's view direction. Returns true
+// if any direction moved, so callers only re-upload the lights when it matters --
+// in the preview an unconditional upload would restart accumulation every frame.
+bool aim_follow_lights(std::vector<LightSpec>& lights, const Camera& camera);
 
 // Frames the keyframes expand to, and the keyframe-index parameter u a given
 // output frame maps to.

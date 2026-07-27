@@ -177,6 +177,8 @@ LightSpec read_light(const json& node, const std::string& where)
         light.angular_diameter = node.at("angular_diameter").get<float>();
     if (node.contains("visible"))
         light.visible = node.at("visible").get<bool>();
+    if (node.contains("follow_camera"))
+        light.follow_camera = node.at("follow_camera").get<bool>();
     if (node.contains("enabled"))
         light.enabled = node.at("enabled").get<bool>();
     return light;
@@ -286,6 +288,8 @@ Script load_script(const std::string& path)
             script.frames_between = timeline.at("frames_between").get<int>();
         if (timeline.contains("up"))
             script.up = read_vec3(timeline.at("up"), "timeline.up");
+        if (timeline.contains("center"))
+            script.center = read_vec3(timeline.at("center"), "timeline.center");
     }
 
     if (!root.contains("keyframes") || !root.at("keyframes").is_array())
@@ -372,7 +376,23 @@ int keyframe_frame(const Script& script, int keyframe_index)
 
 Camera camera_for(const Script& script, float u)
 {
-    return camera_at(script.keyframes, u, Vec3{0.0f, 0.0f, 0.0f}, script.up);
+    return camera_at(script.keyframes, u, script.center, script.up);
+}
+
+bool aim_follow_lights(std::vector<LightSpec>& lights, const Camera& camera)
+{
+    const Vec3 forward = normalize(camera.target - camera.position);
+    bool changed = false;
+    for (LightSpec& light : lights) {
+        if (!light.follow_camera || light.type != "distant")
+            continue;
+        if (light.direction.x == forward.x && light.direction.y == forward.y
+            && light.direction.z == forward.z)
+            continue;
+        light.direction = forward;
+        changed = true;
+    }
+    return changed;
 }
 
 namespace {
@@ -469,8 +489,10 @@ void save_lights(const std::string& path, const std::vector<LightSpec>& lights)
         entry["color"] = clean3(light.color);
         if (light.type == "distant" || light.type == "sunSky") {
             entry["direction"] = clean3(light.direction);
-            if (light.type == "distant")
+            if (light.type == "distant") {
                 entry["angular_diameter"] = clean(light.angular_diameter);
+                entry["follow_camera"] = light.follow_camera;
+            }
         }
         entry["visible"] = light.visible;
         entry["enabled"] = light.enabled;
@@ -528,6 +550,13 @@ void save_camera(const std::string& path, float azimuth, float elevation, float 
         keyframe["fov"] = clean(fov);
         keyframe["radius"] = clean(radius);
     }
+    write_document(path, document);
+}
+
+void save_center(const std::string& path, Vec3 center)
+{
+    ordered_json document = read_document(path);
+    document["timeline"]["center"] = clean3(center);
     write_document(path, document);
 }
 

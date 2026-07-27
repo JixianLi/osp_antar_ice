@@ -460,13 +460,20 @@ int main(int argc, char** argv)
                     ospr::OrbitSpec fitted;
                     fitted.fov_y_degrees = orbit.fov_y_degrees;
                     ospr::frame_scene(fitted, bounds, VIEW_ASPECT);
+                    script.center = fitted.center;
                     orbit.center = fitted.center;
                     orbit.radius = fitted.radius;
                     follow_script_camera = false;
                 }
-                ImGui::SameLine();
-                ImGui::Text("center %.0f %.0f %.0f",
-                    orbit.center.x, orbit.center.y, orbit.center.z);
+                // Focus is the script's orbit centre, so the free camera and the
+                // keyframe poses look at the same point and the preview matches
+                // what ospr_render produces.
+                if (ImGui::DragFloat3("focus", &script.center.x, 0.01f, -2.0f, 2.0f)) {
+                    orbit.center = script.center;
+                    renderer.reset();
+                }
+                if (ImGui::Button("save focus"))
+                    guard_save([&]() { ospr::save_center(script_path, script.center); });
                 ImGui::SliderFloat("azimuth", &orbit.azimuth_degrees, -360.0f, 360.0f);
                 ImGui::SliderFloat("elevation", &orbit.elevation_degrees, -89.0f, 89.0f);
                 ImGui::SliderFloat("fov", &orbit.fov_y_degrees, 10.0f, 90.0f);
@@ -477,7 +484,9 @@ int main(int argc, char** argv)
                 // exactly the view shown here rather than jumping.
                 if (ImGui::Button("reset camera")) {
                     const ospr::Keyframe& keyframe = script.keyframes[keyframe_index];
-                    orbit.center = fit.center;
+                    // The keyframe poses orbit the script centre, so returning to
+                    // one means adopting that centre, not the fitted one.
+                    orbit.center = script.center;
                     orbit.azimuth_degrees = keyframe.azimuth_degrees;
                     orbit.elevation_degrees = keyframe.elevation_degrees;
                     orbit.fov_y_degrees = keyframe.fov_y_degrees;
@@ -530,9 +539,16 @@ int main(int argc, char** argv)
                     changed |= ImGui::SliderFloat(
                         "intensity", &lights[index].intensity, 0.0f, 4.0f);
                     changed |= ImGui::ColorEdit3("color", &lights[index].color.x);
-                    if (is_directional)
+                    if (is_directional) {
+                        changed |= ImGui::Checkbox(
+                            "follow camera", &lights[index].follow_camera);
+                        // Still shown while following so the driven value is
+                        // visible, but editing it would be overwritten next frame.
+                        ImGui::BeginDisabled(lights[index].follow_camera);
                         changed |= ImGui::SliderFloat3(
                             "direction", &lights[index].direction.x, -1.0f, 1.0f);
+                        ImGui::EndDisabled();
+                    }
                     ImGui::PopID();
                     ImGui::Separator();
                 }
@@ -613,6 +629,10 @@ int main(int argc, char** argv)
                 ? ospr::camera_for(script, u)
                 : orbit.camera();
             renderer.set_camera(camera);
+            if (ospr::aim_follow_lights(lights, camera)) {
+                renderer.scene().set_lights(lights);
+                renderer.reset();
+            }
             if (dirty) {
                 renderer.set_opacity(ospr::opacity_at(script.keyframes, u));
                 dirty = false;

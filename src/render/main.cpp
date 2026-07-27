@@ -244,8 +244,11 @@ int main(int argc, char** argv)
         for (int index = first; index <= last; ++index) {
             const auto frame_start = std::chrono::steady_clock::now();
             const float u = ospr::frame_to_param(script, index);
-            const auto& pixels = frame_renderer.render(
-                ospr::camera_for(script, u), ospr::opacity_at(script.keyframes, u));
+            const ospr::Camera camera = ospr::camera_for(script, u);
+            if (ospr::aim_follow_lights(script.session.lights, camera))
+                frame_renderer.scene().set_lights(script.session.lights);
+            const auto& pixels
+                = frame_renderer.render(camera, ospr::opacity_at(script.keyframes, u));
 
             const std::string path = frame_path(directory, index);
             ospr::write_png_rgba(
