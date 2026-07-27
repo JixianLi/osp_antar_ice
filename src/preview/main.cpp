@@ -165,11 +165,13 @@ bool opacity_editor(const char* id, ospr::OpacityCurve& curve)
     if (drag >= 0 && ImGui::IsMouseDown(ImGuiMouseButton_Left) && drag <= last) {
         curve.points[drag].opacity = opacity_at(mouse.y);
         if (drag != 0 && drag != last) {
-            // Keep interior points strictly between the fixed anchors so a drag
-            // cannot reorder one past an end and hijack the drag index.
-            const float eps = 1e-3f * (back.layer - front.layer);
-            curve.points[drag].layer = std::clamp(layer_at(mouse.x),
-                front.layer + eps, back.layer - eps);
+            // Confined between its immediate neighbours, so no drag can reorder
+            // the points and hand the drag index to a different one. Touching a
+            // neighbour is still allowed: two points at one layer is how a
+            // vertical step is authored.
+            curve.points[drag].layer = std::min(
+                std::max(layer_at(mouse.x), curve.points[drag - 1].layer),
+                curve.points[drag + 1].layer);
         }
         changed = true;
     }
