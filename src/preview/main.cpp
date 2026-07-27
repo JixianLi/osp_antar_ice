@@ -268,7 +268,6 @@ int main(int argc, char** argv)
         ospr::Vec3 background_bottom = script.session.renderer.background_bottom;
         const GLuint texture = make_texture();
 
-        const int keyframe_count = static_cast<int>(script.keyframes.size());
         // Not const: frames_between is editable and the frame count follows it.
         int last_frame = std::max(0, ospr::frame_count(script) - 1);
         int keyframe_index = 0;
@@ -321,6 +320,11 @@ int main(int argc, char** argv)
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
+
+            // Recomputed every frame so the keyframe slider and index track the
+            // live count as the add/delete buttons change it.
+            const int keyframe_count = static_cast<int>(script.keyframes.size());
+            keyframe_index = std::clamp(keyframe_index, 0, keyframe_count - 1);
 
             const ImGuiIO& io = ImGui::GetIO();
             if (!io.WantCaptureMouse) {
@@ -390,9 +394,6 @@ int main(int argc, char** argv)
                     keyframe_index = keyframe_count - 1;
                 }
             }
-            const float u = playing ? ospr::frame_to_param(script, play_frame)
-                                    : static_cast<float>(keyframe_index);
-
             if (ImGui::CollapsingHeader("timeline", ImGuiTreeNodeFlags_DefaultOpen)) {
                 if (playing) {
                     if (ImGui::Button("stop")) {
@@ -404,7 +405,8 @@ int main(int argc, char** argv)
                         dirty = true;
                     }
                     ImGui::SameLine();
-                    ImGui::Text("playing  frame %d / %d  u=%.2f", play_frame, last_frame, u);
+                    ImGui::Text("playing  frame %d / %d  u=%.2f", play_frame, last_frame,
+                        ospr::frame_to_param(script, play_frame));
                 } else {
                     if (ImGui::Button("play")) {
                         playing = true;
@@ -414,6 +416,29 @@ int main(int argc, char** argv)
                     if (ImGui::SliderInt(
                             "keyframe", &keyframe_index, 0, keyframe_count - 1))
                         dirty = true;
+                    // Add appends a copy of the current keyframe after it; delete
+                    // removes it but always leaves at least two keyframes. Both
+                    // edit the in-memory timeline only -- there is no whole-array
+                    // writer, so they are not persisted by a save button.
+                    if (ImGui::SmallButton("add keyframe")) {
+                        const ospr::Keyframe copy = script.keyframes[keyframe_index];
+                        script.keyframes.insert(
+                            script.keyframes.begin() + keyframe_index + 1, copy);
+                        ++keyframe_index;
+                        last_frame = std::max(0, ospr::frame_count(script) - 1);
+                        dirty = true;
+                    }
+                    if (keyframe_count > 2) {
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("delete keyframe")) {
+                            script.keyframes.erase(
+                                script.keyframes.begin() + keyframe_index);
+                            keyframe_index = std::min(keyframe_index,
+                                static_cast<int>(script.keyframes.size()) - 1);
+                            last_frame = std::max(0, ospr::frame_count(script) - 1);
+                            dirty = true;
+                        }
+                    }
                 }
                 ImGui::Checkbox("camera follows script", &follow_script_camera);
             }
@@ -577,6 +602,12 @@ int main(int argc, char** argv)
                     guard_save([&]() { ospr::save_colors(script_path, flat_color_array()); });
                 ImGui::End();
             }
+
+            // Read after the timeline UI, not before it: the keyframe slider and
+            // the add/delete buttons move keyframe_index, and sampling u ahead of
+            // them renders every selection one GUI frame late.
+            const float u = playing ? ospr::frame_to_param(script, play_frame)
+                                    : static_cast<float>(keyframe_index);
 
             const ospr::Camera camera = (playing || follow_script_camera)
                 ? ospr::camera_for(script, u)
