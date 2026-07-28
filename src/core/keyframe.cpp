@@ -33,8 +33,10 @@ Vec3 orthogonalize_up(Vec3 up, Vec3 forward)
     return length(orthogonal) > 1e-6f ? normalize(orthogonal) : up;
 }
 
-Camera orbit_pose(
-    float azimuth_degrees, float elevation_degrees, float radius, float fov, Vec3 center, Vec3 up)
+} // namespace
+
+Camera orbit_pose(float azimuth_degrees, float elevation_degrees, float radius,
+    float fov_y_degrees, Vec3 center, Vec3 up)
 {
     const float azimuth = azimuth_degrees * DEGREES_TO_RADIANS;
     const float elevation = elevation_degrees * DEGREES_TO_RADIANS;
@@ -45,12 +47,10 @@ Camera orbit_pose(
         + Vec3{radius * std::cos(elevation) * std::cos(azimuth),
               radius * std::cos(elevation) * std::sin(azimuth),
               radius * std::sin(elevation)};
-    camera.fov_y_degrees = fov;
+    camera.fov_y_degrees = fov_y_degrees;
     camera.up = orthogonalize_up(up, normalize(camera.target - camera.position));
     return camera;
 }
-
-} // namespace
 
 Camera camera_at(const std::vector<Keyframe>& keyframes, float u, Vec3 center, Vec3 up)
 {

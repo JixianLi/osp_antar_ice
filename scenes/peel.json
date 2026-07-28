@@ -164,14 +164,19 @@
       0,
       0,
       1
+    ],
+    "center": [
+      0.08,
+      0.0,
+      -0.44
     ]
   },
   "keyframes": [
     {
-      "azimuth": -463.099792,
-      "elevation": 26.5,
-      "fov": 35.0,
-      "radius": 2.114957,
+      "azimuth": -462.499634,
+      "elevation": 25.899982,
+      "fov": 45.0,
+      "radius": 2.583688,
       "opacity": [
         [
           0.0,
@@ -193,10 +198,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -463.099792,
-      "elevation": 26.5,
-      "fov": 35.0,
-      "radius": 2.114957,
+      "azimuth": -462.499634,
+      "elevation": 25.899982,
+      "fov": 45.0,
+      "radius": 2.583688,
       "opacity": [
         [
           0.0,
@@ -218,10 +223,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -463.099792,
-      "elevation": 26.5,
-      "fov": 35.0,
-      "radius": 2.114957,
+      "azimuth": -462.499634,
+      "elevation": 25.899982,
+      "fov": 45.0,
+      "radius": 2.583688,
       "opacity": [
         [
           0.0,
@@ -243,10 +248,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -463.099792,
-      "elevation": 26.5,
-      "fov": 35.0,
-      "radius": 2.114957,
+      "azimuth": -462.499634,
+      "elevation": 25.899982,
+      "fov": 45.0,
+      "radius": 2.583688,
       "opacity": [
         [
           0.0,
@@ -268,10 +273,10 @@
       "ease": "smooth"
     },
     {
-      "azimuth": -463.099792,
-      "elevation": 26.5,
-      "fov": 35.0,
-      "radius": 2.114957,
+      "azimuth": -462.499634,
+      "elevation": 25.899982,
+      "fov": 45.0,
+      "radius": 2.583688,
       "opacity": [
         [
           0.0,

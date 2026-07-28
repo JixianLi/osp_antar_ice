@@ -30,6 +30,13 @@ struct Keyframe
     int frames_after{-1};
 };
 
+// The pose an orbit names: azimuth and elevation are degrees about center on a
+// z-up sphere, radius the distance to it. The preview's free camera and
+// camera_at both go through this, so a pose the preview shows and the pose
+// ospr_render builds from the same numbers cannot drift apart.
+Camera orbit_pose(float azimuth_degrees, float elevation_degrees, float radius,
+    float fov_y_degrees, Vec3 center, Vec3 up);
+
 // u is a keyframe-index parameter in [0, keyframes.size() - 1]; an integer u
 // lands exactly on a keyframe. The ease of the keyframe a segment leaves shapes
 // that segment.

@@ -177,10 +177,10 @@ void save_lights(const std::string& path, const std::vector<LightSpec>& lights);
 void save_density(const std::string& path, float density_scale);
 void save_colors(const std::string& path, const std::array<Vec3, LAYER_COUNT>& layer_colors);
 void save_frames_between(const std::string& path, int frames_between);
-void save_opacity(const std::string& path, int keyframe_index, const OpacityCurve& opacity);
-// Camera is global while the trajectory feature is hidden, so this writes the
-// one pose to every keyframe, keeping them identical.
-void save_camera(const std::string& path, float azimuth, float elevation, float fov, float radius);
+// The timeline is rewritten whole rather than patched per field: the preview can
+// add and delete keyframes, so the array's length and membership change. Keyframe
+// carries every field the loader reads, so nothing hand-authored is lost.
+void save_keyframes(const std::string& path, const std::vector<Keyframe>& keyframes);
 void save_center(const std::string& path, Vec3 center);
 
 // Aims every follow_camera light along the camera's view direction. Returns true
@@ -196,8 +196,7 @@ float frame_to_param(const Script& script, int frame_index);
 // The output frame index that lands exactly on keyframe k.
 int keyframe_frame(const Script& script, int keyframe_index);
 
-// The interpolated camera at keyframe parameter u. The scene is normalized
-// about the origin, so the orbit target is (0, 0, 0).
+// The interpolated camera at keyframe parameter u, orbiting Script::center.
 Camera camera_for(const Script& script, float u);
 
 } // namespace ospr

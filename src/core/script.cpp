@@ -448,13 +448,6 @@ ordered_json& first_volume(ordered_json& session, const std::string& path)
     throw std::runtime_error(path + ": no volume object to save into");
 }
 
-ordered_json& keyframes_of(ordered_json& document, const std::string& path)
-{
-    if (!document.contains("keyframes") || !document["keyframes"].is_array())
-        throw std::runtime_error(path + ": missing 'keyframes' array");
-    return document["keyframes"];
-}
-
 } // namespace
 
 void save_quality(const std::string& path, int spp, int shadow_samples, int ao_samples)
@@ -528,28 +521,28 @@ void save_frames_between(const std::string& path, int frames_between)
     write_document(path, document);
 }
 
-void save_opacity(const std::string& path, int keyframe_index, const OpacityCurve& opacity)
+void save_keyframes(const std::string& path, const std::vector<Keyframe>& keyframes)
 {
     ordered_json document = read_document(path);
-    ordered_json& keyframes = keyframes_of(document, path);
-    if (keyframe_index < 0 || keyframe_index >= static_cast<int>(keyframes.size()))
-        throw std::runtime_error(path + ": keyframe index out of range");
-    ordered_json points = ordered_json::array();
-    for (const OpacityPoint& point : opacity.points)
-        points.push_back(ordered_json{clean(point.layer), clean(point.opacity)});
-    keyframes[keyframe_index]["opacity"] = points;
-    write_document(path, document);
-}
-
-void save_camera(const std::string& path, float azimuth, float elevation, float fov, float radius)
-{
-    ordered_json document = read_document(path);
-    for (ordered_json& keyframe : keyframes_of(document, path)) {
-        keyframe["azimuth"] = clean(azimuth);
-        keyframe["elevation"] = clean(elevation);
-        keyframe["fov"] = clean(fov);
-        keyframe["radius"] = clean(radius);
+    ordered_json array = ordered_json::array();
+    for (const Keyframe& keyframe : keyframes) {
+        ordered_json entry;
+        entry["azimuth"] = clean(keyframe.azimuth_degrees);
+        entry["elevation"] = clean(keyframe.elevation_degrees);
+        entry["fov"] = clean(keyframe.fov_y_degrees);
+        entry["radius"] = clean(keyframe.radius);
+        ordered_json points = ordered_json::array();
+        for (const OpacityPoint& point : keyframe.opacity.points)
+            points.push_back(ordered_json{clean(point.layer), clean(point.opacity)});
+        entry["opacity"] = points;
+        entry["ease"] = keyframe.ease == Ease::Smooth ? "smooth" : "linear";
+        // -1 means "use the timeline default", which is spelled by leaving the
+        // key out rather than by writing the sentinel.
+        if (keyframe.frames_after >= 0)
+            entry["frames_after"] = keyframe.frames_after;
+        array.push_back(entry);
     }
+    document["keyframes"] = array;
     write_document(path, document);
 }
 

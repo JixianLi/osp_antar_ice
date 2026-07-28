@@ -32,7 +32,6 @@ namespace {
 // side. 1024 x 576 is a real preview at speed, not a thumbnail.
 constexpr float VIEW_ASPECT = 16.0f / 9.0f;
 constexpr int RESOLUTION_LONG_SIDES[] = {128, 256, 512, 1024, 3840};
-constexpr float DEGREES_TO_RADIANS = 3.14159265358979323846f / 180.0f;
 
 int height_for(int long_side)
 {
@@ -52,18 +51,45 @@ struct OrbitState
 
     ospr::Camera camera() const
     {
-        const float azimuth = azimuth_degrees * DEGREES_TO_RADIANS;
-        const float elevation = elevation_degrees * DEGREES_TO_RADIANS;
-        ospr::Camera camera;
-        camera.target = center;
-        camera.position = {center.x + radius * std::cos(elevation) * std::cos(azimuth),
-            center.y + radius * std::cos(elevation) * std::sin(azimuth),
-            center.z + radius * std::sin(elevation)};
-        camera.up = up;
-        camera.fov_y_degrees = fov_y_degrees;
-        return camera;
+        return ospr::orbit_pose(
+            azimuth_degrees, elevation_degrees, radius, fov_y_degrees, center, up);
     }
 };
+
+// Exact comparison against the last saved snapshot: the question is whether the
+// value has moved at all since it reached the file, not whether it moved much.
+bool same(ospr::Vec3 a, ospr::Vec3 b)
+{
+    return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+bool same(const ospr::OpacityCurve& a, const ospr::OpacityCurve& b)
+{
+    if (a.points.size() != b.points.size())
+        return false;
+    for (std::size_t index = 0; index < a.points.size(); ++index)
+        if (a.points[index].layer != b.points[index].layer
+            || a.points[index].opacity != b.points[index].opacity)
+            return false;
+    return true;
+}
+
+bool same(const std::vector<ospr::Keyframe>& a, const std::vector<ospr::Keyframe>& b)
+{
+    if (a.size() != b.size())
+        return false;
+    for (std::size_t index = 0; index < a.size(); ++index) {
+        const ospr::Keyframe& left = a[index];
+        const ospr::Keyframe& right = b[index];
+        if (left.azimuth_degrees != right.azimuth_degrees
+            || left.elevation_degrees != right.elevation_degrees
+            || left.radius != right.radius || left.fov_y_degrees != right.fov_y_degrees
+            || left.ease != right.ease || left.frames_after != right.frames_after
+            || !same(left.opacity, right.opacity))
+            return false;
+    }
+    return true;
+}
 
 GLuint make_texture()
 {
@@ -250,10 +276,13 @@ int main(int argc, char** argv)
         std::cout << "ready\n" << std::flush;
 
         // The free camera opens on the first keyframe pose so the preview starts
-        // where the shot does.
+        // where the shot does. It orbits the script's own centre, not the fitted
+        // one, because that is the point camera_for -- and so ospr_render --
+        // targets; seeding it from the fit made every saved pose describe a
+        // framing the final render would not reproduce.
         OrbitState orbit;
         orbit.up = script.up;
-        orbit.center = fit.center;
+        orbit.center = script.center;
         if (!script.keyframes.empty()) {
             orbit.azimuth_degrees = script.keyframes[0].azimuth_degrees;
             orbit.elevation_degrees = script.keyframes[0].elevation_degrees;
@@ -264,6 +293,17 @@ int main(int argc, char** argv)
             orbit.fov_y_degrees = fit.fov_y_degrees;
             orbit.radius = fit.radius;
         }
+
+        // What the file holds, so a save button can say whether the edit in front
+        // of you has reached disk. Advanced only on a successful write.
+        std::vector<ospr::Keyframe> saved_keyframes = script.keyframes;
+        ospr::Vec3 saved_center = script.center;
+
+        // The preview is locked to 16:9; framing only carries over to
+        // ospr_render if the output is too.
+        const float output_aspect = static_cast<float>(script.output.width)
+            / static_cast<float>(script.output.height);
+        const bool aspect_matches = std::abs(output_aspect - VIEW_ASPECT) < 0.005f;
 
         std::vector<ospr::LightSpec> lights = script.session.lights;
         ospr::Vec3 background_top = script.session.renderer.background_top;
@@ -317,6 +357,18 @@ int main(int argc, char** argv)
             }
         };
 
+        // Marked with a star and a warm fill while what is on screen differs from
+        // what was last written, so an edit cannot be left behind by accident.
+        const auto save_button = [&](const char* label, bool unsaved, const auto& write) {
+            if (unsaved)
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.35f, 0.10f, 1.0f));
+            const std::string text = unsaved ? std::string(label) + " *" : label;
+            if (ImGui::Button(text.c_str()))
+                guard_save(write);
+            if (unsaved)
+                ImGui::PopStyleColor();
+        };
+
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
             ImGui_ImplOpenGL3_NewFrame();
@@ -358,6 +410,10 @@ int main(int argc, char** argv)
                 preview_height = height_for(preview_width);
                 renderer.set_resolution(preview_width, preview_height);
             }
+            if (!aspect_matches)
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                    "output %d x %d is %.3f:1, preview is %.3f:1 -- framing will not match",
+                    script.output.width, script.output.height, output_aspect, VIEW_ASPECT);
             if (!save_error.empty())
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "save failed: %s",
                     save_error.c_str());
@@ -419,9 +475,7 @@ int main(int argc, char** argv)
                             "keyframe", &keyframe_index, 0, keyframe_count - 1))
                         dirty = true;
                     // Add appends a copy of the current keyframe after it; delete
-                    // removes it but always leaves at least two keyframes. Both
-                    // edit the in-memory timeline only -- there is no whole-array
-                    // writer, so they are not persisted by a save button.
+                    // removes it but always leaves at least two keyframes.
                     if (ImGui::SmallButton("add keyframe")) {
                         const ospr::Keyframe copy = script.keyframes[keyframe_index];
                         script.keyframes.insert(
@@ -443,6 +497,13 @@ int main(int argc, char** argv)
                     }
                 }
                 ImGui::Checkbox("camera follows script", &follow_script_camera);
+                // The one writer for the whole timeline: poses, opacity curves,
+                // ease and the keyframe list itself. Every other keyframe edit in
+                // this window is in-memory until this button is pressed.
+                save_button("save keyframes", !same(script.keyframes, saved_keyframes), [&]() {
+                    ospr::save_keyframes(script_path, script.keyframes);
+                    saved_keyframes = script.keyframes;
+                });
             }
 
             if (!playing
@@ -450,11 +511,7 @@ int main(int argc, char** argv)
                 ImGui::Text("opacity at keyframe %d", keyframe_index);
                 if (opacity_editor("opacity", script.keyframes[keyframe_index].opacity))
                     dirty = true;
-                if (ImGui::Button("save opacity"))
-                    guard_save([&]() {
-                        ospr::save_opacity(script_path, keyframe_index,
-                            script.keyframes[keyframe_index].opacity);
-                    });
+                ImGui::TextDisabled("(saved by \"save keyframes\" under timeline)");
             }
 
             if (ImGui::CollapsingHeader("camera", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -474,8 +531,10 @@ int main(int argc, char** argv)
                     orbit.center = script.center;
                     renderer.reset();
                 }
-                if (ImGui::Button("save focus"))
-                    guard_save([&]() { ospr::save_center(script_path, script.center); });
+                save_button("save focus", !same(script.center, saved_center), [&]() {
+                    ospr::save_center(script_path, script.center);
+                    saved_center = script.center;
+                });
                 ImGui::SliderFloat("azimuth", &orbit.azimuth_degrees, -360.0f, 360.0f);
                 ImGui::SliderFloat("elevation", &orbit.elevation_degrees, -89.0f, 89.0f);
                 ImGui::SliderFloat("fov", &orbit.fov_y_degrees, 10.0f, 90.0f);
@@ -496,20 +555,17 @@ int main(int argc, char** argv)
                     follow_script_camera = true;
                 }
                 ImGui::SameLine();
-                // Global pose while the trajectory feature is hidden: written to
-                // every keyframe so they stay identical. The in-memory keyframes
-                // are updated too, so play reflects the save without a reload.
-                if (ImGui::Button("save camera (all keyframes)"))
-                    guard_save([&]() {
-                        ospr::save_camera(script_path, orbit.azimuth_degrees,
-                            orbit.elevation_degrees, orbit.fov_y_degrees, orbit.radius);
-                        for (ospr::Keyframe& keyframe : script.keyframes) {
-                            keyframe.azimuth_degrees = orbit.azimuth_degrees;
-                            keyframe.elevation_degrees = orbit.elevation_degrees;
-                            keyframe.fov_y_degrees = orbit.fov_y_degrees;
-                            keyframe.radius = orbit.radius;
-                        }
-                    });
+                // Global pose while the trajectory feature is hidden: copied to
+                // every keyframe so they stay identical. In-memory only -- "save
+                // keyframes" under timeline is what puts it on disk.
+                if (ImGui::Button("apply camera to all keyframes")) {
+                    for (ospr::Keyframe& keyframe : script.keyframes) {
+                        keyframe.azimuth_degrees = orbit.azimuth_degrees;
+                        keyframe.elevation_degrees = orbit.elevation_degrees;
+                        keyframe.fov_y_degrees = orbit.fov_y_degrees;
+                        keyframe.radius = orbit.radius;
+                    }
+                }
             }
 
             if (ImGui::CollapsingHeader("background", ImGuiTreeNodeFlags_DefaultOpen)) {
