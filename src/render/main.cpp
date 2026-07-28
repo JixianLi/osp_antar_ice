@@ -27,19 +27,41 @@ struct Options
     std::string swatch_colormap;
     std::string swatch_png;
     ospr::ColorMapTrim trim;
-    int single_frame{-1};
+    // Inclusive frame range; -1 means "the timeline's own end", so an
+    // unrestricted run needs neither flag.
+    int first_frame{-1};
+    int last_frame{-1};
+    bool print_count{false};
 };
 
 void print_usage()
 {
-    std::cerr << "usage: ospr_render <script.json> [--out DIR] [--frame N]\n"
+    std::cerr << "usage: ospr_render <script.json> [--out DIR] [--frames LO HI]\n"
                  "       ospr_render --info <file.vti>\n"
                  "       ospr_render --swatch <colormap.xml> <out.png>\n"
                  "  --out DIR      override the script's output.dir\n"
+                 "  --frames LO HI render frames LO through HI inclusive; split a\n"
+                 "                 timeline across nodes by giving each a range\n"
                  "  --frame N      render only frame N\n"
+                 "  --count        print the timeline's frame count alone, then exit,\n"
+                 "                 so a submit script can compute --frames itself\n"
                  "  --info FILE    print a volume's bounds and arrays, then exit\n"
                  "  --swatch A B   write colormap A as a PNG strip to B, then exit\n"
                  "  --trim LO HI   restrict a colormap to a sub-range of itself\n";
+}
+
+// std::stoi reports a bad argument as "stoi", which in a batch log names neither
+// the flag nor the value that was wrong.
+int parse_frame_index(const char* text, const std::string& flag)
+{
+    try {
+        const int value = std::stoi(text);
+        if (value < 0)
+            throw std::runtime_error(flag + ": frame index must not be negative: " + text);
+        return value;
+    } catch (const std::logic_error&) {
+        throw std::runtime_error(flag + ": not a frame index: " + std::string(text));
+    }
 }
 
 Options parse_options(int argc, char** argv)
@@ -50,7 +72,13 @@ Options parse_options(int argc, char** argv)
         if (arg == "--out" && index + 1 < argc) {
             options.output_directory = argv[++index];
         } else if (arg == "--frame" && index + 1 < argc) {
-            options.single_frame = std::stoi(argv[++index]);
+            options.first_frame = parse_frame_index(argv[++index], arg);
+            options.last_frame = options.first_frame;
+        } else if (arg == "--frames" && index + 2 < argc) {
+            options.first_frame = parse_frame_index(argv[++index], arg);
+            options.last_frame = parse_frame_index(argv[++index], arg);
+        } else if (arg == "--count") {
+            options.print_count = true;
         } else if (arg == "--info" && index + 1 < argc) {
             options.info_path = argv[++index];
         } else if (arg == "--trim" && index + 2 < argc) {
@@ -207,6 +235,14 @@ int main(int argc, char** argv)
 
         ospr::Script script = ospr::load_script(options.script_path);
 
+        // Ahead of the output directory and of ospInit: a count is a question
+        // about the script, and answering it must not create a directory, load a
+        // volume, or put anything else on stdout for $(...) to swallow.
+        if (options.print_count) {
+            std::cout << ospr::frame_count(script) << "\n";
+            return 0;
+        }
+
         const std::filesystem::path directory = options.output_directory.empty()
             ? std::filesystem::path(script.output.directory)
             : std::filesystem::path(options.output_directory);
@@ -236,10 +272,15 @@ int main(int argc, char** argv)
                   << bounds.diagonal() << "\n";
 
         const int total = ospr::frame_count(script);
-        const int first = options.single_frame >= 0 ? options.single_frame : 0;
-        const int last = options.single_frame >= 0 ? options.single_frame : total - 1;
-        if (first < 0 || last >= total)
-            throw std::runtime_error("frame index out of range (0.." + std::to_string(total - 1) + ")");
+        const int first = options.first_frame >= 0 ? options.first_frame : 0;
+        const int last = options.last_frame >= 0 ? options.last_frame : total - 1;
+        if (last >= total)
+            throw std::runtime_error("frame index out of range (0.." + std::to_string(total - 1)
+                + "): this timeline is " + std::to_string(total) + " frames");
+        if (first > last)
+            throw std::runtime_error("--frames: LO (" + std::to_string(first)
+                + ") must not exceed HI (" + std::to_string(last) + ")");
+        std::cout << "rendering frames " << first << ".." << last << " of " << total << "\n";
 
         for (int index = first; index <= last; ++index) {
             const auto frame_start = std::chrono::steady_clock::now();
