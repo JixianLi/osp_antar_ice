@@ -32,6 +32,7 @@ struct Options
     int first_frame{-1};
     int last_frame{-1};
     bool print_count{false};
+    bool keyframes_only{false};
 };
 
 void print_usage()
@@ -43,6 +44,9 @@ void print_usage()
                  "  --frames LO HI render frames LO through HI inclusive; split a\n"
                  "                 timeline across nodes by giving each a range\n"
                  "  --frame N      render only frame N\n"
+                 "  --keyframes    render only the frames that land on a keyframe,\n"
+                 "                 keeping their timeline frame numbers; combines\n"
+                 "                 with --frames to take those within a range\n"
                  "  --count        print the timeline's frame count alone, then exit,\n"
                  "                 so a submit script can compute --frames itself\n"
                  "  --info FILE    print a volume's bounds and arrays, then exit\n"
@@ -77,6 +81,8 @@ Options parse_options(int argc, char** argv)
         } else if (arg == "--frames" && index + 2 < argc) {
             options.first_frame = parse_frame_index(argv[++index], arg);
             options.last_frame = parse_frame_index(argv[++index], arg);
+        } else if (arg == "--keyframes") {
+            options.keyframes_only = true;
         } else if (arg == "--count") {
             options.print_count = true;
         } else if (arg == "--info" && index + 1 < argc) {
@@ -280,9 +286,29 @@ int main(int argc, char** argv)
         if (first > last)
             throw std::runtime_error("--frames: LO (" + std::to_string(first)
                 + ") must not exceed HI (" + std::to_string(last) + ")");
-        std::cout << "rendering frames " << first << ".." << last << " of " << total << "\n";
+        // Keyframe-only runs keep the timeline's frame numbering rather than
+        // renumbering 0..n, so a keyframe check and a full render land on the
+        // same filenames and the check can be dropped into a finished sequence.
+        std::vector<int> frames;
+        if (options.keyframes_only) {
+            for (std::size_t keyframe = 0; keyframe < script.keyframes.size(); ++keyframe) {
+                const int frame = ospr::keyframe_frame(script, static_cast<int>(keyframe));
+                if (frame >= first && frame <= last)
+                    frames.push_back(frame);
+            }
+            std::cout << "rendering " << frames.size() << " keyframes within frames " << first
+                      << ".." << last << " of " << total << "\n";
+        } else {
+            for (int frame = first; frame <= last; ++frame)
+                frames.push_back(frame);
+            std::cout << "rendering frames " << first << ".." << last << " of " << total << "\n";
+        }
+        // Not an error: one shard of a split keyframe run legitimately holds no
+        // keyframes, and failing it would fail the whole job array.
+        if (frames.empty())
+            std::cout << "nothing to render\n";
 
-        for (int index = first; index <= last; ++index) {
+        for (const int index : frames) {
             const auto frame_start = std::chrono::steady_clock::now();
             const float u = ospr::frame_to_param(script, index);
             const ospr::Camera camera = ospr::camera_for(script, u);
