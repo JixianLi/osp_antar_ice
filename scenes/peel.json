@@ -62,7 +62,7 @@
       {
         "type": "curve",
         "path": "../data/contours_L1_bm5000_s1000_m10000_t0.35_g2000_p50_render_crop.vtp",
-        "radius": 0.0008,
+        "radius": 0.003,
         "color": [
           0.0,
           0.0,
@@ -73,7 +73,7 @@
       {
         "type": "curve",
         "path": "../data/contours_L5_bm5000_s1000_m10000_t0.35_g2000_p50_render_crop.vtp",
-        "radius": 0.0008,
+        "radius": 0.003,
         "color": [
           0.0,
           0.0,
@@ -84,7 +84,7 @@
       {
         "type": "curve",
         "path": "../data/contours_L7_bm5000_s1000_m10000_t0.35_g2000_p50_render_crop.vtp",
-        "radius": 0.0008,
+        "radius": 0.003,
         "color": [
           0.0,
           0.0,
@@ -95,7 +95,7 @@
       {
         "type": "curve",
         "path": "../data/contours_Basal_bm5000_s1000_m10000_t0.35_g2000_p50_render_crop.vtp",
-        "radius": 0.0008,
+        "radius": 0.003,
         "color": [
           0.0,
           0.0,
@@ -106,7 +106,7 @@
       {
         "type": "curve",
         "path": "../data/contours_Bed_bm5000_s1000_m10000_t0.35_g2000_p50_render_crop.vtp",
-        "radius": 0.0008,
+        "radius": 0.003,
         "color": [
           0.0,
           0.0,
@@ -142,9 +142,9 @@
           1.0
         ],
         "direction": [
-          0.202835,
-          0.871645,
-          -0.446198
+          0.013,
+          0.762975,
+          -0.403545
         ],
         "angular_diameter": 2.0,
         "follow_camera": false,
@@ -183,11 +183,11 @@
           0.0
         ],
         [
-          0.9,
+          0.95,
           0.0
         ],
         [
-          1.0,
+          1.05,
           1.0
         ],
         [
@@ -208,11 +208,11 @@
           0.0
         ],
         [
-          1.9,
+          1.95,
           0.0
         ],
         [
-          2.0,
+          2.05,
           1.0
         ],
         [
@@ -233,11 +233,11 @@
           0.0
         ],
         [
-          2.9,
+          2.95,
           0.0
         ],
         [
-          3.0,
+          3.05,
           1.0
         ],
         [
@@ -258,11 +258,11 @@
           0.0
         ],
         [
-          3.9,
+          3.95,
           0.0
         ],
         [
-          4.0,
+          4.05,
           1.0
         ],
         [
